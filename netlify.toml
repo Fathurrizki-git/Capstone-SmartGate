@@ -2,7 +2,16 @@
   publish = "web_dashboard"
 
 [[redirects]]
+  from = "/register"
+  to = "/register.html"
+  status = 200
+
+[[redirects]]
+  from = "/daftar"
+  to = "/register.html"
+  status = 200
+
+[[redirects]]
   from = "/*"
   to = "/index.html"
   status = 200
-

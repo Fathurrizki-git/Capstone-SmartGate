@@ -166,9 +166,11 @@ class MJPEGHandler(BaseHTTPRequestHandler):
         self._serve_dashboard_file(clean_path)
 
     def _serve_dashboard_file(self, clean_path):
-        """Melayani file statis Web Dashboard & SPA routing (/dashboard, /security, dll)."""
+        """Melayani file statis Web Dashboard, Portal Registrasi Civitas (/register), & SPA routing."""
         rel_path = clean_path.lstrip('/')
-        if not rel_path or rel_path in ('dashboard', 'trendline', 'vehicle-log', 'security', 'login'):
+        if rel_path in ('register', 'register/', 'daftar', 'daftar/'):
+            rel_path = 'register.html'
+        elif not rel_path or rel_path in ('dashboard', 'trendline', 'vehicle-log', 'security', 'vehicles', 'login'):
             rel_path = 'index.html'
 
         full_path = os.path.normpath(os.path.join(WEB_DASHBOARD_DIR, rel_path))

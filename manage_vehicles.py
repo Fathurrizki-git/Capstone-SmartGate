@@ -48,14 +48,16 @@ def list_vehicles():
             if not vehicles:
                 print("\n[INFO] Belum ada kendaraan terdaftar di Supabase.")
                 return
-            print("\n" + "=" * 95)
+            print("\n" + "=" * 98)
             print(f"  DAFTAR KENDARAAN & RFID TERDAFTAR (CIVITAS AKADEMIKA) — Total: {len(vehicles)}")
-            print("=" * 95)
-            print(f"{'ID':<4} | {'PLAT NOMOR':<13} | {'NAMA PEMILIK':<22} | {'KATEGORI':<18} | {'NIM / NIP':<15} | {'RFID UID':<12}")
-            print("-" * 95)
+            print("=" * 98)
+            print(f"{'ID':<4} | {'PLAT NOMOR':<13} | {'NAMA PEMILIK':<22} | {'KATEGORI':<18} | {'NIM / NIP':<15} | {'RFID UID':<15}")
+            print("-" * 98)
             for v in vehicles:
-                print(f"{v.get('id', ''):<4} | {v.get('plate', ''):<13} | {v.get('owner_name', ''):<22} | {v.get('category', ''):<18} | {v.get('nim_nip', '-'):<15} | {v.get('rfid_uid', '-'):<12}")
-            print("=" * 95 + "\n")
+                owner = v.get('owner') or v.get('owner_name', '')
+                rfid_val = v.get('rfid_uid') or 'AUTO-BIND (NULL)'
+                print(f"{v.get('id', ''):<4} | {v.get('plate', ''):<13} | {owner:<22} | {v.get('category', ''):<18} | {v.get('nim_nip', '-'):<15} | {rfid_val:<15}")
+            print("=" * 98 + "\n")
         else:
             print(f"[ERROR] Gagal mengambil data (status {r.status_code}): {r.text}")
     except Exception as e:
@@ -90,7 +92,7 @@ def add_vehicle(plate=None, name=None, category=None, nim_nip=None, rfid=None):
         nim_nip = input("NIM / NIP (opsional, tekan enter jika kosong): ").strip() or "-"
 
     if rfid is None:
-        rfid = input("UID Kartu RFID USB (opsional, tekan enter jika kosong): ").strip() or None
+        rfid = input("UID Kartu RFID USB (kosongkan untuk Auto-Bind saat tap pertama di gerbang): ").strip() or None
     else:
         rfid = rfid.strip() or None
 
@@ -100,7 +102,7 @@ def add_vehicle(plate=None, name=None, category=None, nim_nip=None, rfid=None):
 
     payload = {
         "plate": plate,
-        "owner_name": name,
+        "owner": name,
         "category": category,
         "nim_nip": nim_nip,
         "rfid_uid": rfid
@@ -109,7 +111,8 @@ def add_vehicle(plate=None, name=None, category=None, nim_nip=None, rfid=None):
     try:
         r = requests.post(f"{url}/rest/v1/registered_vehicles", headers=headers, json=payload, timeout=6)
         if r.status_code in (200, 201):
-            print(f"\n[SUKSES] Plat '{plate}' atas nama '{name}' ({category}) berhasil didaftarkan!")
+            mode_str = f"RFID: {rfid}" if rfid else "Mode: AUTO-BIND saat tap pertama di gerbang"
+            print(f"\n[SUKSES] Plat '{plate}' atas nama '{name}' ({category} | {mode_str}) berhasil didaftarkan!")
         elif r.status_code == 409 or 'duplicate' in r.text.lower():
             print(f"\n[GAGAL] Plat '{plate}' atau RFID UID sudah terdaftar di database.")
         else:

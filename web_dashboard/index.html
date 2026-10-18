@@ -120,6 +120,17 @@ h1,h2,h3,p{margin:0}
   display:inline-flex;align-items:center;gap:6px;cursor:pointer;transition:all .15s;
 }
 .btn-quick-open:hover{background:var(--orange);color:#060b26}
+.btn-quick-reg{
+  margin-top:8px;margin-right:6px;padding:5px 12px;font-size:11.5px;font-weight:700;border-radius:8px;
+  border:1px solid rgba(1,181,116,.5);background:rgba(1,181,116,.16);color:#42f5b3;
+  display:inline-flex;align-items:center;gap:6px;cursor:pointer;transition:all .15s;
+}
+.btn-quick-reg:hover{background:var(--green);color:#fff;box-shadow:0 4px 12px rgba(1,181,116,.35)}
+.rfid-pill{
+  display:inline-flex;align-items:center;gap:6px;padding:4px 10px;border-radius:99px;font-size:11px;font-weight:700;
+}
+.rfid-pill.active{background:rgba(1,181,116,.16);color:#42f5b3;border:1px solid rgba(1,181,116,.35)}
+.rfid-pill.pending{background:rgba(255,181,71,.16);color:#ffc46a;border:1px solid rgba(255,181,71,.35)}
 .icon-btn{display:inline-flex;align-items:center;justify-content:center;width:34px;height:34px;border-radius:10px;border:0;
   background:transparent;color:var(--graygray-400);transition:background .15s,color .15s}
 .icon-btn:hover{background:rgba(255,255,255,.08);color:#fff}
@@ -563,13 +574,18 @@ body.modal-open{overflow:hidden}
       <a href="/dashboard" data-route="dashboard"><span class="nav-ic" data-icon="home" data-size="15"></span>Dashboard</a>
       <a href="/trendline" data-route="trendline"><span class="nav-ic"><img src="img/chart_blue.svg" width="15" height="15" alt="" class="ic chart-ic-blue" style="vertical-align:middle;object-fit:contain"><img src="img/chart.svg" width="15" height="15" alt="" class="ic chart-ic-white" style="vertical-align:middle;object-fit:contain"></span>Trendline</a>
       <a href="/vehicle-log" data-route="vehicle-log"><span class="nav-ic" data-icon="car" data-size="15"></span>Vehicle Log</a>
+      <a href="/vehicles" data-route="vehicles"><span class="nav-ic" data-icon="user" data-size="15"></span>Registered Vehicles</a>
       <a href="/security" data-route="security"><span class="nav-ic" data-icon="shield" data-size="15"></span>Security Notification<span class="badge js-unread" hidden>0</span></a>
     </nav>
     <div class="sb-footer">
       <div class="help-card">
         <span class="hc-ic" data-icon="camera" data-size="16"></span>
-        <h4>ALPR Gate System</h4>
-        <p>Pemantauan plat nomor kendaraan secara real-time.</p>
+        <h4>Registrasi Civitas (&lt;1m)</h4>
+        <p style="margin-bottom:10px">Scan QR Code atau daftar kilat di gerbang keluar.</p>
+        <div style="display:flex;gap:6px">
+          <button type="button" class="btn" id="sb-btn-qr" style="flex:1;background:#fff;color:var(--bg);padding:7px 10px;font-size:11px;border-radius:10px">📱 QR Portal</button>
+          <button type="button" class="btn" id="sb-btn-quickreg" style="flex:1;background:rgba(255,255,255,.18);color:#fff;padding:7px 10px;font-size:11px;border-radius:10px">⚡ Daftar Kilat</button>
+        </div>
       </div>
       <div class="user-chip">
         <span class="avatar js-avatar">F</span>
@@ -761,6 +777,84 @@ body.modal-open{overflow:hidden}
       </div>
     </section>
 
+    <!-- ================= REGISTERED VEHICLES (CIVITAS & RFID) ================= -->
+    <section class="view" data-view="vehicles" hidden>
+      <!-- Banner Portal Pendaftaran Mandiri (Opsi 1) & Quick Register Pos Satpam (Opsi 3) -->
+      <div class="gate-control-card" style="background:linear-gradient(128deg,rgba(4,28,45,.92) 0%,rgba(10,18,52,.9) 100%);border-color:rgba(44,217,255,.35)">
+        <div class="gcc-info">
+          <div class="gcc-icon" style="background:rgba(44,217,255,.18);color:var(--cyan)">
+            <span data-icon="user" data-size="22"></span>
+          </div>
+          <div>
+            <div class="gcc-title">Skema Registrasi Cepat Civitas Akademika (&lt; 1 Menit)</div>
+            <div class="gcc-sub">Bagikan kartu RFID kosong ke civitas: daftar mandiri via <b>QR Code (/register) + Auto-Bind di Gerbang</b>, atau <b>Quick-Register</b> langsung oleh petugas.</div>
+          </div>
+        </div>
+        <div class="gcc-actions">
+          <button type="button" class="btn btn-ghost" id="btn-open-qr-modal" style="border:1px solid rgba(44,217,255,.4);color:var(--cyan)">
+            <span>📱 QR Code Portal Mandiri</span>
+          </button>
+          <a href="/register" target="_blank" class="btn btn-ghost" style="border:1px solid rgba(255,255,255,.15)">
+            <span>🔗 Buka /register</span>
+          </a>
+          <button type="button" class="btn btn-primary" id="btn-open-quick-reg">
+            <span>⚡ + Quick Register Civitas</span>
+          </button>
+        </div>
+      </div>
+
+      <!-- Statistik Registrasi Civitas -->
+      <div class="grid g-metrics">
+        <div class="card metric"><div><div class="m-label">Total Civitas Terdaftar</div><div class="m-val" id="rv-total">0</div></div><span class="m-ic" data-icon="car" data-size="22"></span></div>
+        <div class="card metric"><div><div class="m-label">Kartu RFID Aktif (Terikat)</div><div class="m-val up" id="rv-active">0</div></div><span class="m-ic" style="background:var(--green)" data-icon="checkCircle" data-size="22"></span></div>
+        <div class="card metric"><div><div class="m-label">Menunggu Tap Pertama (Auto-Bind)</div><div class="m-val" style="color:var(--orange)" id="rv-pending">0</div></div><span class="m-ic" style="background:var(--orange);color:#060b26" data-icon="clock" data-size="22"></span></div>
+        <div class="card metric"><div><div class="m-label">Mahasiswa / Dosen / Tendik</div><div class="m-val" style="font-size:16px" id="rv-breakdown">0 / 0 / 0</div></div><span class="m-ic" style="background:var(--cyan);color:#060b26" data-icon="user" data-size="22"></span></div>
+      </div>
+
+      <div class="card">
+        <div class="card-head">
+          <div>
+            <div class="card-title">Daftar Kendaraan &amp; Kartu RFID Civitas (registered_vehicles)</div>
+            <div class="card-sub">Sinkronisasi real-time dengan database Supabase &bull; Mendukung Auto-Bind RFID saat tap pertama di gerbang</div>
+          </div>
+          <button type="button" class="btn btn-ghost" id="rv-refresh">🔄 Segarkan Data</button>
+        </div>
+
+        <div class="toolbar">
+          <div class="input sm"><span data-icon="search" data-size="16" class="muted"></span><input type="search" id="rv-q" placeholder="Cari plat, nama, NIM/NIP, atau UID RFID..." aria-label="Cari kendaraan terdaftar"></div>
+          <select class="select" id="rv-cat" aria-label="Filter kategori civitas">
+            <option value="ALL">Semua Kategori</option>
+            <option value="STUDENT">Mahasiswa (Student)</option>
+            <option value="LECTURER">Dosen (Lecturer)</option>
+            <option value="ACADEMIC COMMUNITY">Tendik / Civitas</option>
+          </select>
+          <select class="select" id="rv-status" aria-label="Filter status RFID">
+            <option value="ALL">Semua Status RFID</option>
+            <option value="ACTIVE">🟢 RFID Sudah Aktif</option>
+            <option value="PENDING">⚡ Menunggu Auto-Bind (Tap Pertama)</option>
+          </select>
+          <button type="button" class="btn btn-ghost" id="rv-reset">Reset</button>
+        </div>
+
+        <div class="table-wrap">
+          <table class="table" id="rv-table">
+            <thead>
+              <tr>
+                <th>NO</th>
+                <th>LICENSE PLATE</th>
+                <th>OWNER NAME</th>
+                <th>CATEGORY</th>
+                <th>NIM / NIP</th>
+                <th>STATUS KARTU RFID (13.56 MHz)</th>
+                <th>AKSI</th>
+              </tr>
+            </thead>
+            <tbody id="rv-body"></tbody>
+          </table>
+        </div>
+      </div>
+    </section>
+
     <!-- ================= SECURITY ================= -->
     <section class="view" data-view="security" hidden>
       <!-- Remote Barrier Control Banner (HANYA ADA DI HALAMAN SECURITY NOTIFICATION) -->
@@ -770,15 +864,18 @@ body.modal-open{overflow:hidden}
             <span data-icon="parking" data-size="22"></span>
           </div>
           <div>
-            <div class="gcc-title">Kontrol Buka Palang Gerbang Keluar (Remote Gate)</div>
-            <div class="gcc-sub">Buka palang manual dari web jika terjadi kendala Kartu Tidak Cocok, Plat Buram, atau Tamu.</div>
+            <div class="gcc-title">Kontrol Buka Palang &amp; Pendaftaran Kilat Gerbang Keluar</div>
+            <div class="gcc-sub">Daftarkan civitas baru langsung di gerbang (&lt;20 detik) atau buka palang manual untuk kendaraan tamu.</div>
           </div>
         </div>
         <div class="gcc-actions">
           <span class="gcc-status" id="gate-current-status"><span class="live-dot" style="background:var(--red)"></span>Palang Tertutup (0°)</span>
+          <button type="button" class="btn btn-green" id="btn-sec-quick-reg" style="border-radius:12px">
+            <span>⚡ Quick Register &amp; Buka</span>
+          </button>
           <button type="button" class="btn btn-warning" id="btn-remote-open-gate">
             <span data-icon="parking" data-size="16"></span>
-            <span>Buka Palang Gerbang</span>
+            <span>Buka Palang Manual</span>
           </button>
         </div>
       </div>
@@ -925,6 +1022,125 @@ body.modal-open{overflow:hidden}
   </div>
 </div>
 
+<!-- Modal Quick-Register Civitas (< 20 Detik oleh Petugas / On-The-Spot Gate Enrollment) -->
+<div class="modal" id="quick-reg-modal" hidden role="dialog" aria-modal="true" aria-labelledby="quick-reg-title">
+  <div class="modal-card" style="max-width:500px;border:1px solid rgba(1,181,116,.45);box-shadow:0 18px 50px rgba(0,0,0,.8)">
+    <div style="display:flex;justify-content:space-between;align-items:flex-start;margin-bottom:14px">
+      <div style="display:flex;align-items:center;gap:12px">
+        <span style="width:40px;height:40px;border-radius:12px;background:rgba(1,181,116,.18);color:var(--green);display:inline-flex;align-items:center;justify-content:center;font-size:20px">⚡</span>
+        <div>
+          <h3 id="quick-reg-title" class="card-title" style="font-size:16px">Quick Register Civitas (&lt; 20 Detik)</h3>
+          <p class="muted" id="quick-reg-subtitle" style="font-size:12px">Plat &amp; RFID otomatis terisi dari deteksi gerbang keluar</p>
+        </div>
+      </div>
+      <button class="icon-btn" id="quick-reg-close" aria-label="Tutup" data-icon="x"></button>
+    </div>
+
+    <form id="quick-reg-form" novalidate style="display:flex;flex-direction:column;gap:12px">
+      <input type="hidden" id="qr-edit-id" value="">
+
+      <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px">
+        <div>
+          <label for="qr-plate" style="display:block;font-size:12px;font-weight:600;margin-bottom:5px;color:#e2e8f0">Plat Nomor Kendaraan *</label>
+          <div class="input sm" style="height:42px">
+            <input type="text" id="qr-plate" placeholder="Contoh: A 1234 BC" style="text-transform:uppercase;font-weight:700;letter-spacing:1px" required>
+          </div>
+        </div>
+        <div>
+          <label for="qr-cat" style="display:block;font-size:12px;font-weight:600;margin-bottom:5px;color:#e2e8f0">Kategori Civitas *</label>
+          <select id="qr-cat" class="select" style="width:100%;height:42px">
+            <option value="STUDENT">Mahasiswa (STUDENT)</option>
+            <option value="LECTURER">Dosen (LECTURER)</option>
+            <option value="ACADEMIC COMMUNITY">Tendik / Staf (CIVITAS)</option>
+          </select>
+        </div>
+      </div>
+
+      <div>
+        <label for="qr-name" style="display:block;font-size:12px;font-weight:600;margin-bottom:5px;color:#e2e8f0">Nama Lengkap Civitas *</label>
+        <div class="input sm" style="height:42px">
+          <input type="text" id="qr-name" placeholder="Ketik nama lengkap pemilik kendaraan..." required>
+        </div>
+      </div>
+
+      <div style="display:grid;grid-template-columns:1fr 1.15fr;gap:12px">
+        <div>
+          <label for="qr-nim" style="display:block;font-size:12px;font-weight:600;margin-bottom:5px;color:#e2e8f0">NIM / NIP *</label>
+          <div class="input sm" style="height:42px">
+            <input type="text" id="qr-nim" placeholder="Contoh: 3332200001" required>
+          </div>
+        </div>
+        <div>
+          <label for="qr-rfid" style="display:flex;justify-content:space-between;font-size:12px;font-weight:600;margin-bottom:5px;color:#e2e8f0">
+            <span>UID Kartu RFID</span>
+            <span style="color:var(--cyan);font-size:10.5px;cursor:pointer" id="btn-focus-rfid" title="Klik lalu tempelkan kartu ke RFID Reader USB">🎯 Tap Reader</span>
+          </label>
+          <div class="input sm" style="height:42px">
+            <input type="text" id="qr-rfid" placeholder="Auto-Bind jika dikosongkan" autocomplete="off">
+          </div>
+        </div>
+      </div>
+
+      <div style="background:rgba(44,217,255,.08);border:1px solid rgba(44,217,255,.25);border-radius:12px;padding:10px 12px;font-size:11.5px;color:var(--graygray-300);line-height:1.45">
+        💡 <b>Tips Cepat:</b> Jika petugas menyerahkan kartu RFID baru tanpa di-tap di PC ini, <b>kosongkan kolom UID RFID</b>. Saat pengendara men-tap kartu tersebut di gerbang keluar, kartu akan otomatis terikat (<i>Auto-Bind</i>)!
+      </div>
+
+      <label class="switch" id="qr-open-gate-wrap" style="padding:10px 12px;border-radius:12px;background:rgba(255,181,71,.12);border:1px solid rgba(255,181,71,.35)">
+        <input type="checkbox" id="qr-open-gate" checked>
+        <span class="track"></span>
+        <span style="font-weight:700;color:#ffd280">Sekaligus Buka Palang Gerbang Keluar Sekarang (90°)</span>
+      </label>
+
+      <div id="qr-error" style="background:rgba(255,56,60,.15);border:1px solid rgba(255,56,60,.4);color:#ff9ea0;padding:10px 12px;border-radius:12px;font-size:12px" hidden></div>
+
+      <div style="display:flex;gap:10px;justify-content:flex-end;margin-top:4px">
+        <button type="button" class="btn btn-ghost" id="quick-reg-cancel">Batal</button>
+        <button type="submit" class="btn btn-green" id="quick-reg-submit" style="border-radius:12px;padding:10px 18px">
+          <span data-icon="check" data-size="16"></span>
+          <span id="quick-reg-submit-label">Simpan &amp; Buka Palang</span>
+        </button>
+      </div>
+    </form>
+  </div>
+</div>
+
+<!-- Modal QR Code Portal Pendaftaran Mandiri (/register) -->
+<div class="modal" id="qr-portal-modal" hidden role="dialog" aria-modal="true" aria-labelledby="qr-portal-title">
+  <div class="modal-card" style="max-width:440px;text-align:center;border:1px solid rgba(44,217,255,.4);box-shadow:0 18px 50px rgba(0,0,0,.85)">
+    <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:12px;text-align:left">
+      <div>
+        <h3 id="qr-portal-title" class="card-title" style="font-size:16px">📱 QR Code Registrasi Mandiri Civitas</h3>
+        <p class="muted" style="font-size:12px">Scan via HP (&lt; 40 Detik) &bull; Auto-Bind RFID di Gerbang</p>
+      </div>
+      <button class="icon-btn" id="qr-portal-close" aria-label="Tutup" data-icon="x"></button>
+    </div>
+
+    <div style="background:#fff;padding:16px;border-radius:18px;display:inline-flex;flex-direction:column;align-items:center;margin:8px auto 14px;box-shadow:0 10px 30px rgba(0,0,0,.4)">
+      <img id="qr-portal-img" width="210" height="210" alt="QR Code Portal Registrasi" style="display:block;border-radius:8px">
+      <div style="color:#060b26;font-weight:800;font-size:11px;letter-spacing:1px;margin-top:8px">SCAN UNTUK DAFTAR PLAT NOMOR</div>
+    </div>
+
+    <p style="font-size:12.5px;color:var(--graygray-300);line-height:1.5;margin-bottom:12px">
+      Bagikan kartu RFID kosong kepada civitas, lalu minta mereka scan QR Code ini untuk mengisi <b>Nama, NIM/NIP, &amp; Plat Nomor</b>. Kartu akan aktif otomatis saat tap pertama di gerbang!
+    </p>
+
+    <div style="text-align:left;margin-bottom:14px">
+      <label for="qr-portal-url" style="display:block;font-size:11.5px;font-weight:600;color:var(--graygray-400);margin-bottom:5px">Link Portal Registrasi Mandiri:</label>
+      <div style="display:flex;gap:8px">
+        <div class="input sm" style="flex:1">
+          <input type="text" id="qr-portal-url" readonly>
+        </div>
+        <button type="button" class="btn btn-primary" id="btn-copy-reg-url" style="padding:0 14px">Salin</button>
+      </div>
+    </div>
+
+    <div style="display:flex;gap:10px;justify-content:center">
+      <a href="/register" target="_blank" class="btn btn-ghost" style="flex:1">🔗 Buka Halaman /register</a>
+      <button type="button" class="btn btn-primary" id="btn-print-qr" style="flex:1">🖨️ Cetak Poster QR</button>
+    </div>
+  </div>
+</div>
+
 <div class="toasts" id="toasts" aria-live="polite"></div>
 
 <script>
@@ -1015,12 +1231,14 @@ body.modal-open{overflow:hidden}
 
   var state = {
     logs: [],               // terbaru di index 0 (hasil query Supabase)
+    vehicles: [],           // daftar kendaraan terdaftar di registered_vehicles
     alerts: [],             // diturunkan dari logs (lihat buildAlerts)
     range: '1d',
     page: 1,
     perPage: 10,
     sort: { key: 'time', dir: 'desc' },
     filters: { q: '', cat: 'ALL', dir: 'ALL' },
+    rvFilters: { q: '', cat: 'ALL', status: 'ALL' },
     alertFilter: 'all',
     route: null,
     newIds: {},
@@ -1045,19 +1263,27 @@ body.modal-open{overflow:hidden}
 
   // Ubah satu baris log menjadi notifikasi keamanan (atau null jika normal)
   function alertFromLog(l) {
-    var a = { id: l.id, ts: l.ts, plate: l.plate, read: !!alertMeta.read[l.id], canOpen: true };
+    var a = {
+      id: l.id,
+      ts: l.ts,
+      plate: l.plate,
+      rfid: l.scanned_rfid || '',
+      read: !!alertMeta.read[l.id],
+      canOpen: true,
+      canQuickReg: false
+    };
     if (l.method === 'WEB_MANUAL' || l.method === 'MANUAL') {
       a.type = 'info'; a.tag = 'MANUAL OPEN'; a.canOpen = false;
       a.title = l.method === 'WEB_MANUAL' ? 'Palang Gerbang Dibuka Manual via Website' : 'Palang Dibuka Manual (Push Button)';
       a.desc = 'Palang keluar dibuka manual oleh petugas. Plat: ' + l.plate + '.';
     } else if (l.status === 'TIDAK COCOK') {
-      a.type = 'danger'; a.tag = 'RFID MISMATCH';
+      a.type = 'danger'; a.tag = 'RFID MISMATCH'; a.canQuickReg = true;
       a.title = 'Kartu RFID Tidak Sesuai (Beda Pemilik)';
       a.desc = 'Plat ' + l.plate + ' terdeteksi, namun kartu RFID bukan milik pemilik terdaftar. Palang ditahan tertutup.';
     } else if (l.status === 'TIDAK TERDAFTAR') {
-      a.type = 'warning'; a.tag = 'UNREGISTERED';
-      a.title = 'Kendaraan Tamu / Belum Terdaftar';
-      a.desc = 'Plat ' + l.plate + ' belum terdaftar di database civitas FT Untirta.';
+      a.type = 'warning'; a.tag = 'UNREGISTERED'; a.canQuickReg = true;
+      a.title = 'Kendaraan Civitas Baru / Tamu (Belum Terdaftar)';
+      a.desc = 'Plat ' + l.plate + (a.rfid ? (' (Tap RFID: ' + a.rfid + ')') : '') + ' belum terdaftar. Klik Quick Register untuk mendaftarkan dalam 15 detik.';
     } else if (l.conf < 80) {
       a.type = 'warning'; a.tag = 'OCR FAILED';
       a.title = 'Plat Nomor Tidak Terbaca Jelas';
@@ -1152,7 +1378,10 @@ body.modal-open{overflow:hidden}
   function updateModalScrollLock() {
     var anyOpen = ($('#modal') && !$('#modal').hidden) ||
                   ($('#confirm-gate-modal') && !$('#confirm-gate-modal').hidden) ||
-                  ($('#notif-summary-modal') && !$('#notif-summary-modal').hidden);
+                  ($('#notif-summary-modal') && !$('#notif-summary-modal').hidden) ||
+                  ($('#cam-cfg-modal') && !$('#cam-cfg-modal').hidden) ||
+                  ($('#quick-reg-modal') && !$('#quick-reg-modal').hidden) ||
+                  ($('#qr-portal-modal') && !$('#qr-portal-modal').hidden);
     if (anyOpen) {
       document.body.classList.add('modal-open');
     } else {
@@ -1209,6 +1438,7 @@ body.modal-open{overflow:hidden}
 
     // Tandai sudah dibaca saat popup dibuka
     a.read = true;
+    syncAlertMeta();
     updateBadges();
     renderSecurity();
     if (state.route === 'dashboard') {
@@ -1230,7 +1460,7 @@ body.modal-open{overflow:hidden}
     if (a.tag === 'RFID MISMATCH') {
       statusDesc = 'AKSES DITOLAK: Kartu RFID Berbeda dengan Pemilik Plat Terdaftar';
     } else if (a.tag === 'UNREGISTERED') {
-      statusDesc = 'AKSES DITOLAK: Kendaraan Belum Terdaftar (Pengendara Tamu)';
+      statusDesc = 'AKSES DITOLAK: Kendaraan Belum Terdaftar di Database';
     } else if (a.tag === 'OCR FAILED') {
       statusDesc = 'AKSES DITOLAK: Plat Nomor Tidak Terbaca Jelas / Buram';
     } else if (a.tag === 'MANUAL OPEN') {
@@ -1250,21 +1480,34 @@ body.modal-open{overflow:hidden}
 
       '<dl class="kv" style="margin-bottom:20px">' +
         '<dt>Kategori</dt><dd>' + (a.tag || esc(a.type.toUpperCase())) + '</dd>' +
-        (a.plate ? ('<dt>Plat Terkait</dt><dd><span class="plate" style="font-size:14px;padding:3px 8px;margin:0">' + esc(a.plate) + '</span></dd>') : '') +
+        (a.plate ? ('<dt>Plat Terdeteksi</dt><dd><span class="plate" style="font-size:14px;padding:3px 8px;margin:0">' + esc(a.plate) + '</span></dd>') : '') +
+        (a.rfid ? ('<dt>RFID Di-Tap</dt><dd><code style="color:var(--cyan);font-size:13px">' + esc(a.rfid) + '</code></dd>') : '') +
         '<dt>Status Sistem</dt><dd><span style="color:' + (a.type === 'danger' ? '#ff8a8c' : a.type === 'warning' ? '#ffb547' : '#5fa8ff') + ';font-weight:600">' + esc(statusDesc) + '</span></dd>' +
         '<dt>Arah Gerbang</dt><dd><span class="pill out">OUT (GERBANG KELUAR)</span></dd>' +
       '</dl>' +
 
-      '<div style="display:flex;gap:10px;justify-content:flex-end;align-items:center;flex-wrap:wrap">' +
+      '<div style="display:flex;gap:8px;justify-content:flex-end;align-items:center;flex-wrap:wrap">' +
         '<button type="button" class="btn btn-ghost" id="modal-alert-close">Tutup</button>' +
+        (a.canQuickReg ? ('<button type="button" class="btn btn-green" id="modal-alert-quick-reg" data-plate="' + esc(a.plate || '') + '" data-rfid="' + esc(a.rfid || '') + '" style="border-radius:12px">' +
+          '<span>⚡ Daftarkan &amp; Buka Palang</span></button>') : '') +
         (a.canOpen ? ('<button type="button" class="btn btn-warning" id="modal-alert-open-gate" data-reason="' + esc(a.title) + '" data-plate="' + esc(a.plate || '') + '" style="background:linear-gradient(135deg,#ffb547,#ff8800);color:#060b26;font-weight:700">' +
-          icon('parking', 16) + '<span>Buka Palang Manual</span></button>') : '') +
+          icon('parking', 16) + '<span>Buka Palang Manual (Tamu)</span></button>') : '') +
       '</div>';
 
     openModal(html);
 
     var cBtn = $('#modal-alert-close');
     if (cBtn) cBtn.addEventListener('click', closeModal);
+
+    var qrBtn = $('#modal-alert-quick-reg');
+    if (qrBtn) {
+      qrBtn.addEventListener('click', function () {
+        var pl = this.dataset.plate;
+        var rf = this.dataset.rfid;
+        closeModal();
+        openQuickRegModal({ plate: pl, rfid_uid: rf, openGate: true });
+      });
+    }
 
     var ogBtn = $('#modal-alert-open-gate');
     if (ogBtn) {
@@ -1535,10 +1778,16 @@ body.modal-open{overflow:hidden}
       (compact ? '' : '<div class="alert-desc">' + esc(a.desc) + '</div>') +
       '<time>' + fmtDateTime(a.ts) + '</time>';
 
-    // Tombol Buka Palang Cepat (HANYA pada kartu Security Notification yang memerlukan override petugas)
+    // Tombol Quick Register (<20s) & Buka Palang Cepat pada kartu Security Notification
     if (!compact && a.canOpen) {
+      html += '<div style="display:flex;gap:6px;flex-wrap:wrap">';
+      if (a.canQuickReg) {
+        html += '<button type="button" class="btn-quick-reg" data-act="quick-reg-alert" data-plate="' + esc(a.plate || '') + '" data-rfid="' + esc(a.rfid || '') + '">' +
+          '<span>⚡ Daftarkan &amp; Buka Palang</span></button>';
+      }
       html += '<button type="button" class="btn-quick-open" data-act="open-gate-alert" data-reason="' + esc(a.title) + '" data-plate="' + esc(a.plate || '') + '">' +
         icon('parking', 13) + '<span>Buka Palang Manual</span></button>';
+      html += '</div>';
     }
 
     html += '</div>';
@@ -1711,6 +1960,65 @@ body.modal-open{overflow:hidden}
     $('#vl-per').value = String(state.perPage);
   }
 
+  function renderRegisteredVehicles() {
+    var all = state.vehicles || [];
+    var activeCount = all.filter(function (v) { return v.hasRfid; }).length;
+    var pendingCount = all.length - activeCount;
+    var nStu = all.filter(function (v) { return v.category === 'STUDENT'; }).length;
+    var nLec = all.filter(function (v) { return v.category === 'LECTURER'; }).length;
+    var nCiv = all.filter(function (v) { return v.category === 'ACADEMIC COMMUNITY'; }).length;
+
+    if ($('#rv-total')) $('#rv-total').textContent = all.length;
+    if ($('#rv-active')) $('#rv-active').textContent = activeCount;
+    if ($('#rv-pending')) $('#rv-pending').textContent = pendingCount;
+    if ($('#rv-breakdown')) $('#rv-breakdown').textContent = nStu + ' / ' + nLec + ' / ' + nCiv;
+
+    var f = state.rvFilters;
+    var q = (f.q || '').trim().toLowerCase();
+    var qNorm = q.replace(/\s+/g, '');
+
+    var filtered = all.filter(function (v) {
+      if (f.cat !== 'ALL' && v.category !== f.cat) return false;
+      if (f.status === 'ACTIVE' && !v.hasRfid) return false;
+      if (f.status === 'PENDING' && v.hasRfid) return false;
+      if (q) {
+        var matchPlate = v.plate.toLowerCase().replace(/\s+/g, '').indexOf(qNorm) !== -1;
+        var matchOwner = v.owner.toLowerCase().indexOf(q) !== -1;
+        var matchNim = v.nim_nip.toLowerCase().indexOf(q) !== -1;
+        var matchRfid = v.rfid_uid.toLowerCase().indexOf(q) !== -1;
+        if (!matchPlate && !matchOwner && !matchNim && !matchRfid) return false;
+      }
+      return true;
+    });
+
+    var tbody = $('#rv-body');
+    if (!tbody) return;
+
+    if (!filtered.length) {
+      tbody.innerHTML = '<tr class="empty"><td colspan="7">Belum ada data kendaraan civitas yang cocok. Klik <b>+ Quick Register Civitas</b> atau bagikan <b>QR Code (/register)</b>.</td></tr>';
+    } else {
+      tbody.innerHTML = filtered.map(function (v, idx) {
+        var rfidBadge = v.hasRfid
+          ? '<span class="rfid-pill active">🟢 AKTIF &bull; <code>' + esc(v.rfid_uid) + '</code></span>'
+          : '<span class="rfid-pill pending">⚡ MENUNGGU TAP PERTAMA (AUTO-BIND)</span>';
+        return '<tr data-vid="' + v.id + '">' +
+          '<td>' + (idx + 1) + '</td>' +
+          '<td><span class="plate">' + esc(v.plate) + '</span></td>' +
+          '<td><b>' + esc(v.owner) + '</b></td>' +
+          '<td>' + esc(v.category) + '</td>' +
+          '<td>' + esc(v.nim_nip || '-') + '</td>' +
+          '<td>' + rfidBadge + '</td>' +
+          '<td>' +
+            '<div style="display:flex;gap:6px">' +
+              '<button type="button" class="btn btn-ghost" style="padding:5px 10px;font-size:11px;border-radius:8px" data-rv-act="edit" data-id="' + v.id + '">✏️ Edit / Bind RFID</button>' +
+              '<button type="button" class="btn btn-danger" style="padding:5px 10px;font-size:11px;border-radius:8px" data-rv-act="delete" data-id="' + v.id + '" data-plate="' + esc(v.plate) + '">🗑️</button>' +
+            '</div>' +
+          '</td>' +
+        '</tr>';
+      }).join('');
+    }
+  }
+
   function renderSecurity() {
     $$('[data-afilter]').forEach(function (b) { b.classList.toggle('active', b.dataset.afilter === state.alertFilter); });
     var list = state.alerts;
@@ -1758,6 +2066,7 @@ body.modal-open{overflow:hidden}
     'dashboard': { title: 'Dashboard', render: renderDashboard },
     'trendline': { title: 'Trendline', render: renderTrendline },
     'vehicle-log': { title: 'Vehicle Log', render: renderVehicleLog },
+    'vehicles': { title: 'Registered Vehicles', render: renderRegisteredVehicles },
     'security': { title: 'Security Notification', render: renderSecurity }
   };
   function getRoute() {
@@ -2209,6 +2518,14 @@ body.modal-open{overflow:hidden}
         var rows = await res.json();
         var prevFirstId = state.logs && state.logs[0] ? state.logs[0].id : null;
         state.logs = (rows || []).map(function (r) {
+          var rawNim = r.nim_nip || '-';
+          var scannedRfid = '';
+          if (String(rawNim).startsWith('RFID:')) {
+            scannedRfid = String(rawNim).slice(5).trim();
+            rawNim = '-';
+          } else if (String(r.plate || '').startsWith('RFID-')) {
+            scannedRfid = String(r.plate).slice(5).trim();
+          }
           return {
             id: r.id,
             ts: new Date(r.created_at),
@@ -2218,7 +2535,8 @@ body.modal-open{overflow:hidden}
             dir: r.direction || 'IN',
             conf: Math.round(Number(r.confidence) || 90),
             status: r.status || 'TERDAFTAR',
-            nim_nip: r.nim_nip || '-',
+            nim_nip: rawNim,
+            scanned_rfid: scannedRfid,
             method: r.method || 'ALPR'
           };
         });
@@ -2238,9 +2556,38 @@ body.modal-open{overflow:hidden}
     return false;
   }
 
+  async function loadSupabaseVehicles() {
+    var cfg = window.SUPABASE_CONFIG || {};
+    if (!cfg.url || !cfg.anonKey || cfg.url.includes('YOUR_PROJECT_ID')) return false;
+    try {
+      var base = cfg.url.replace(/\/+$/, '');
+      var res = await fetch(base + '/rest/v1/registered_vehicles?select=*&order=id.desc&limit=500', {
+        headers: {
+          'apikey': cfg.anonKey,
+          'Authorization': 'Bearer ' + cfg.anonKey
+        }
+      });
+      if (res.ok) {
+        var rows = await res.json();
+        state.vehicles = rows || [];
+        var rvBadge = $('#rv-badge');
+        if (rvBadge) {
+          rvBadge.textContent = state.vehicles.length;
+          rvBadge.hidden = state.vehicles.length === 0;
+        }
+        if (state.route === 'vehicles') renderRegisteredVehicles();
+        return true;
+      }
+    } catch (err) {
+      console.warn('Gagal memuat daftar kendaraan dari Supabase:', err);
+    }
+    return false;
+  }
+
   async function liveTick() {
     if (!currentUser() || state.route === 'login') return;
     await loadSupabaseLogs();
+    await loadSupabaseVehicles();
   }
   function setLive(on) {
     clearInterval(liveTimer); liveTimer = null;
@@ -2280,6 +2627,15 @@ body.modal-open{overflow:hidden}
     return '';
   }
 
+  function getLastScannedRfid() {
+    if (state.logs && state.logs.length > 0) {
+      for (var i = 0; i < Math.min(state.logs.length, 15); i++) {
+        if (state.logs[i].scanned_rfid) return state.logs[i].scanned_rfid;
+      }
+    }
+    return '';
+  }
+
   function openConfirmGateModal(reason, plate) {
     var user = currentUser() || { name: 'Admin', role: 'Petugas' };
     var detectedPlate = (plate && plate !== 'UNKNOWN' && plate !== 'MANUAL-WEB') ? plate : getLastDetectedPlate();
@@ -2301,19 +2657,20 @@ body.modal-open{overflow:hidden}
     var user = currentUser() || { name: 'Admin', role: 'Petugas' };
     closeConfirmGateModal();
 
-    // Membaca plat kendaraan terakhir yang terdeteksi sebelum buka manual
-    var targetPlate = pendingGatePlate || getLastDetectedPlate() || 'B 3782 NHF';
+    var targetPlate = pendingGatePlate || getLastDetectedPlate() || 'MANUAL-WEB';
     var matchedVehicle = state.logs ? state.logs.find(function (l) { return l.plate === targetPlate; }) : null;
-    var targetName = matchedVehicle ? matchedVehicle.name : ('Buka Manual Web (' + user.name + ')');
-    var targetCategory = matchedVehicle ? matchedVehicle.category : 'ACADEMIC COMMUNITY';
-    var targetNim = matchedVehicle ? matchedVehicle.nim_nip : '-';
+    var targetName = (matchedVehicle && matchedVehicle.name && matchedVehicle.name !== 'Tidak Terdaftar')
+      ? matchedVehicle.name
+      : ('Buka Manual Web (' + user.name + ')');
+    var targetCategory = (matchedVehicle && matchedVehicle.category && matchedVehicle.category !== 'UNREGISTERED')
+      ? matchedVehicle.category
+      : 'ACADEMIC COMMUNITY';
+    var targetNim = (matchedVehicle && matchedVehicle.nim_nip) ? matchedVehicle.nim_nip : '-';
 
-    // 1. Kirim perintah buka palang ke Supabase (tabel gate_commands & vehicle_logs)
     var cfg = window.SUPABASE_CONFIG || {};
     if (cfg.url && cfg.anonKey && !cfg.url.includes('YOUR_PROJECT_ID')) {
       try {
         var base = cfg.url.replace(/\/+$/, '');
-        // Insert perintah ke gate_commands
         await fetch(base + '/rest/v1/gate_commands', {
           method: 'POST',
           headers: {
@@ -2329,7 +2686,6 @@ body.modal-open{overflow:hidden}
           })
         });
 
-        // Insert log ke vehicle_logs
         await fetch(base + '/rest/v1/vehicle_logs', {
           method: 'POST',
           headers: {
@@ -2353,21 +2709,8 @@ body.modal-open{overflow:hidden}
       }
     }
 
-    // 2. Catat notifikasi keamanan baru
-    addAlert(
-      'info',
-      'Palang Gerbang Keluar Dibuka Manual via Website',
-      'Perintah buka jarak jauh dikonfirmasi oleh ' + user.name + ' (' + (user.role || 'Petugas') + '). Plat kendaraan: ' + targetPlate + '.',
-      new Date(),
-      false,
-      'MANUAL OPEN',
-      targetPlate,
-      false
-    );
-
-    // 3. Tambahkan ke state.logs
     var newLog = {
-      id: ++seq,
+      id: Date.now(),
       ts: new Date(),
       name: targetName,
       plate: targetPlate,
@@ -2375,12 +2718,13 @@ body.modal-open{overflow:hidden}
       dir: 'OUT',
       conf: 100,
       status: 'TERDAFTAR',
-      nim_nip: targetNim
+      nim_nip: targetNim,
+      method: 'WEB_MANUAL'
     };
     state.logs.unshift(newLog);
     state.newIds = {}; state.newIds[newLog.id] = true;
+    buildAlerts();
 
-    // 4. Update UI Status Palang
     var st = $('#gate-current-status');
     if (st) {
       st.className = 'gcc-status open';
@@ -2395,8 +2739,285 @@ body.modal-open{overflow:hidden}
 
     updateBadges();
     renderCurrent();
+    loadSupabaseLogs();
 
     toast('✅ Konfirmasi diterima! Perintah buka palang berhasil dikirim ke Gerbang Keluar.', 'success');
+  }
+
+  /* =========================================================
+     ON-THE-SPOT QUICK-REGISTER & REGISTERED VEHICLES CRUD
+     ========================================================= */
+  function normalizePlateString(raw) {
+    var s = String(raw || '').toUpperCase().replace(/[^A-Z0-9]/g, '');
+    var m = s.match(/^([A-Z]{1,2})(\d{1,4})([A-Z]{1,3})$/);
+    if (m) return m[1] + ' ' + m[2] + ' ' + m[3];
+    return String(raw || '').toUpperCase().trim().replace(/\s+/g, ' ');
+  }
+
+  function openQuickRegModal(opts) {
+    opts = opts || {};
+    var isEdit = Boolean(opts.editId);
+    var rawPlate = opts.plate || '';
+    if (!isEdit && (!rawPlate || rawPlate === 'UNKNOWN' || rawPlate === 'MANUAL-WEB' || rawPlate.startsWith('RFID-'))) {
+      rawPlate = getLastDetectedPlate();
+    }
+    var rawRfid = opts.rfid !== undefined ? opts.rfid : (isEdit ? '' : getLastScannedRfid());
+    var openGateDefault = opts.openGate !== undefined ? Boolean(opts.openGate) : !isEdit;
+
+    $('#qreg-edit-id').value = opts.editId || '';
+    $('#qreg-plate').value = rawPlate ? normalizePlateString(rawPlate) : '';
+    $('#qreg-rfid').value = rawRfid || '';
+    $('#qreg-name').value = opts.owner || '';
+    $('#qreg-nim').value = opts.nim_nip || '';
+    $('#qreg-cat').value = opts.category || 'STUDENT';
+    $('#qreg-open-gate').checked = openGateDefault;
+
+    var banner = $('#qreg-auto-banner');
+    if (banner) {
+      if (!isEdit && (rawPlate || rawRfid)) {
+        banner.hidden = false;
+        $('#qreg-auto-text').innerHTML = 'Terdeteksi otomatis dari Gerbang: '
+          + (rawPlate ? ('Plat <strong class="mono">' + esc(normalizePlateString(rawPlate)) + '</strong> ') : '')
+          + (rawRfid ? ('&bull; Kartu RFID <strong class="mono">' + esc(rawRfid) + '</strong>') : '(Mode Auto-Bind saat tap kartu)');
+      } else {
+        banner.hidden = true;
+      }
+    }
+
+    $('#qreg-title').textContent = isEdit ? 'Edit Data Kendaraan Terdaftar' : '⚡ On-The-Spot Quick-Register (< 20 Detik)';
+    $('#qreg-sub').textContent = isEdit
+      ? 'Perbarui data pemilik, plat nomor, atau UID kartu RFID kendaraan civitas.'
+      : 'Daftarkan kendaraan civitas & kartu RFID secara instan, lalu buka palang otomatis.';
+    $('#qreg-submit-btn').textContent = isEdit
+      ? '💾 Simpan Perubahan Data'
+      : (openGateDefault ? '⚡ Simpan & Buka Palang Sekarang' : '💾 Simpan Kendaraan ke Database');
+
+    $('#quick-reg-modal').hidden = false;
+    updateModalScrollLock();
+    setTimeout(function () {
+      if ($('#qreg-plate').value && !isEdit) $('#qreg-name').focus();
+      else $('#qreg-plate').focus();
+    }, 50);
+  }
+
+  function closeQuickRegModal() {
+    var m = $('#quick-reg-modal');
+    if (m) m.hidden = true;
+    updateModalScrollLock();
+  }
+
+  async function submitQuickRegister(e) {
+    e.preventDefault();
+    var editId = $('#qreg-edit-id').value.trim();
+    var plate = normalizePlateString($('#qreg-plate').value);
+    var rfidRaw = $('#qreg-rfid').value.trim();
+    var rfidDigits = rfidRaw.replace(/\D/g, '');
+    var rfid = rfidDigits.length >= 4 ? rfidDigits : (rfidRaw || null);
+    var owner = $('#qreg-name').value.trim();
+    var nim = $('#qreg-nim').value.trim();
+    var category = $('#qreg-cat').value || 'STUDENT';
+    var shouldOpenGate = $('#qreg-open-gate').checked;
+
+    if (!plate || plate.length < 3) {
+      toast('Plat nomor kendaraan wajib diisi dengan benar (contoh: A 1234 BCA).', 'error');
+      $('#qreg-plate').focus();
+      return;
+    }
+    if (!owner || owner.length < 2) {
+      toast('Nama lengkap pemilik wajib diisi.', 'error');
+      $('#qreg-name').focus();
+      return;
+    }
+    if (!nim || nim.length < 3) {
+      toast('NIM / NIP civitas wajib diisi.', 'error');
+      $('#qreg-nim').focus();
+      return;
+    }
+
+    var cfg = window.SUPABASE_CONFIG || {};
+    if (!cfg.url || !cfg.anonKey || cfg.url.includes('YOUR_PROJECT_ID')) {
+      toast('Konfigurasi Supabase belum disetel.', 'error');
+      return;
+    }
+
+    var btn = $('#qreg-submit-btn');
+    var origText = btn.textContent;
+    btn.disabled = true;
+    btn.textContent = 'Menyimpan ke Database...';
+
+    try {
+      var base = cfg.url.replace(/\/+$/, '');
+      var headers = {
+        'apikey': cfg.anonKey,
+        'Authorization': 'Bearer ' + cfg.anonKey,
+        'Content-Type': 'application/json',
+        'Prefer': 'return=representation'
+      };
+
+      // Cek apakah RFID sudah dipakai plat lain
+      if (rfid) {
+        var rfidCheckRes = await fetch(base + '/rest/v1/registered_vehicles?rfid_uid=eq.' + encodeURIComponent(rfid) + '&select=id,plate,owner', { headers: headers });
+        if (rfidCheckRes.ok) {
+          var rfidRows = await rfidCheckRes.json();
+          var conflict = (rfidRows || []).find(function (r) {
+            return r.plate !== plate && String(r.id) !== String(editId);
+          });
+          if (conflict) {
+            toast('Kartu RFID ' + rfid + ' sudah terdaftar pada plat ' + conflict.plate + ' (' + conflict.owner + ').', 'error');
+            btn.disabled = false;
+            btn.textContent = origText;
+            return;
+          }
+        }
+      }
+
+      // Cek apakah plat nomor sudah ada (jika bukan mode editId)
+      var targetId = editId;
+      if (!targetId) {
+        var plateCheckRes = await fetch(base + '/rest/v1/registered_vehicles?plate=eq.' + encodeURIComponent(plate) + '&select=id', { headers: headers });
+        if (plateCheckRes.ok) {
+          var plateRows = await plateCheckRes.json();
+          if (plateRows && plateRows.length > 0) {
+            targetId = plateRows[0].id;
+          }
+        }
+      }
+
+      var payload = {
+        plate: plate,
+        owner: owner,
+        category: category,
+        nim_nip: nim,
+        rfid_uid: rfid
+      };
+
+      var saveRes;
+      if (targetId) {
+        saveRes = await fetch(base + '/rest/v1/registered_vehicles?id=eq.' + encodeURIComponent(targetId), {
+          method: 'PATCH',
+          headers: headers,
+          body: JSON.stringify(payload)
+        });
+      } else {
+        saveRes = await fetch(base + '/rest/v1/registered_vehicles', {
+          method: 'POST',
+          headers: headers,
+          body: JSON.stringify(payload)
+        });
+      }
+
+      if (!saveRes.ok) {
+        var errTxt = await saveRes.text();
+        throw new Error('Gagal menyimpan (' + saveRes.status + '): ' + errTxt);
+      }
+
+      var user = currentUser() || { name: 'Admin', role: 'Petugas' };
+
+      if (shouldOpenGate) {
+        await fetch(base + '/rest/v1/gate_commands', {
+          method: 'POST',
+          headers: headers,
+          body: JSON.stringify({
+            command: 'OPEN_GATE',
+            status: 'PENDING',
+            operator_name: user.name,
+            reason: 'Quick-Register On-The-Spot [' + plate + ']'
+          })
+        });
+
+        await fetch(base + '/rest/v1/vehicle_logs', {
+          method: 'POST',
+          headers: headers,
+          body: JSON.stringify({
+            plate: plate,
+            name: owner,
+            category: category,
+            nim_nip: nim,
+            status: 'TERDAFTAR',
+            method: rfid ? 'DUAL_QUICK_REG' : 'QUICK_REG_WEB',
+            direction: 'OUT',
+            confidence: 100.00
+          })
+        });
+
+        var st = $('#gate-current-status');
+        if (st) {
+          st.className = 'gcc-status open';
+          st.innerHTML = '<span class="live-dot" style="background:var(--green)"></span>PALANG TERBUKA (90°) &bull; Quick-Register: ' + esc(plate);
+          setTimeout(function () {
+            if (st) {
+              st.className = 'gcc-status';
+              st.innerHTML = '<span class="live-dot" style="background:var(--red)"></span>Palang Tertutup (0°)';
+            }
+          }, 7000);
+        }
+      }
+
+      closeQuickRegModal();
+      await loadSupabaseVehicles();
+      await loadSupabaseLogs();
+
+      toast(
+        shouldOpenGate
+          ? ('✅ Kendaraan ' + plate + ' (' + owner + ') berhasil didaftarkan & Palang Gerbang dibuka!')
+          : ('✅ Data kendaraan ' + plate + ' (' + owner + ') berhasil disimpan!'),
+        'success'
+      );
+    } catch (err) {
+      toast('Gagal menyimpan: ' + (err.message || err), 'error');
+    } finally {
+      btn.disabled = false;
+      btn.textContent = origText;
+    }
+  }
+
+  async function deleteRegisteredVehicle(id, plate) {
+    if (!id) return;
+    if (!window.confirm('Hapus kendaraan ' + plate + ' dari daftar kendaraan terdaftar?')) return;
+    var cfg = window.SUPABASE_CONFIG || {};
+    if (!cfg.url || !cfg.anonKey) return;
+    try {
+      var base = cfg.url.replace(/\/+$/, '');
+      var res = await fetch(base + '/rest/v1/registered_vehicles?id=eq.' + encodeURIComponent(id), {
+        method: 'DELETE',
+        headers: {
+          'apikey': cfg.anonKey,
+          'Authorization': 'Bearer ' + cfg.anonKey
+        }
+      });
+      if (res.ok) {
+        toast('Kendaraan ' + plate + ' berhasil dihapus.', 'info');
+        await loadSupabaseVehicles();
+      } else {
+        toast('Gagal menghapus kendaraan.', 'error');
+      }
+    } catch (err) {
+      toast('Gagal menghapus: ' + (err.message || err), 'error');
+    }
+  }
+
+  function openQrPortalModal() {
+    var origin = window.location.origin;
+    var regUrl = origin + '/register';
+    if (window.location.protocol === 'file:') {
+      regUrl = window.location.href.replace(/index\.html.*$/, 'register.html');
+    }
+    var urlText = $('#qr-portal-url-text');
+    if (urlText) urlText.textContent = regUrl;
+    var openLink = $('#qr-portal-open-link');
+    if (openLink) openLink.href = regUrl;
+    var qrImg = $('#qr-portal-img');
+    if (qrImg) {
+      qrImg.src = 'https://api.qrserver.com/v1/create-qr-code/?size=240x240&margin=8&data=' + encodeURIComponent(regUrl);
+    }
+    $('#qr-portal-modal').hidden = false;
+    updateModalScrollLock();
+  }
+
+  function closeQrPortalModal() {
+    var m = $('#qr-portal-modal');
+    if (m) m.hidden = true;
+    updateModalScrollLock();
   }
 
   /* =========================================================
@@ -2432,6 +3053,7 @@ body.modal-open{overflow:hidden}
         try { live = localStorage.getItem('spg_live') !== '0'; } catch (e) { }
         setLive(live);
         loadSupabaseLogs();
+        loadSupabaseVehicles();
         navigate('dashboard');
         toast('Selamat datang, ' + user.name + ' (' + (user.role || 'Admin') + ')!', 'success');
       } catch (ex) {
@@ -2473,7 +3095,7 @@ body.modal-open{overflow:hidden}
     // Live toggle
     $('#live-toggle').addEventListener('change', function () {
       setLive(this.checked);
-      toast(this.checked ? 'Simulasi real-time aktif.' : 'Simulasi real-time dihentikan.', 'info');
+      toast(this.checked ? 'Sinkronisasi real-time aktif.' : 'Sinkronisasi real-time dihentikan.', 'info');
     });
 
     // Trendline range
@@ -2543,6 +3165,14 @@ body.modal-open{overflow:hidden}
 
       if (actBtn) {
         var act = actBtn.dataset.act;
+        if (act === 'quick-reg-alert') {
+          openQuickRegModal({
+            plate: actBtn.dataset.plate || '',
+            rfid: actBtn.dataset.rfid || '',
+            openGate: true
+          });
+          return;
+        }
         if (act === 'open-gate-alert') {
           var reason = actBtn.dataset.reason || 'Buka Palang Manual';
           var plate = actBtn.dataset.plate || '';
@@ -2565,7 +3195,6 @@ body.modal-open{overflow:hidden}
         return;
       }
 
-      // Klik pada bodi atau area kartu alert -> Buka pop-up modal deskripsi lengkap notifikasi!
       openAlertModal(id);
     }
     $('#sec-alerts').addEventListener('click', handleAlert);
@@ -2598,6 +3227,126 @@ body.modal-open{overflow:hidden}
       });
     }
 
+    // Quick-Register Buttons & Modal
+    ['#btn-sec-quick-reg', '#btn-open-quick-reg', '#sb-btn-quickreg'].forEach(function (sel) {
+      var b = $(sel);
+      if (b) {
+        b.addEventListener('click', function () {
+          document.body.classList.remove('sb-open');
+          openQuickRegModal({ openGate: sel === '#btn-sec-quick-reg' });
+        });
+      }
+    });
+    if ($('#quick-reg-close')) $('#quick-reg-close').addEventListener('click', closeQuickRegModal);
+    if ($('#qreg-cancel')) $('#qreg-cancel').addEventListener('click', closeQuickRegModal);
+    if ($('#quick-reg-modal')) {
+      $('#quick-reg-modal').addEventListener('click', function (e) {
+        if (e.target === this) closeQuickRegModal();
+      });
+    }
+    if ($('#btn-clear-rfid')) {
+      $('#btn-clear-rfid').addEventListener('click', function () {
+        $('#qreg-rfid').value = '';
+        $('#qreg-rfid').focus();
+      });
+    }
+    if ($('#qreg-open-gate')) {
+      $('#qreg-open-gate').addEventListener('change', function () {
+        var isEdit = Boolean($('#qreg-edit-id').value);
+        if (!isEdit) {
+          $('#qreg-submit-btn').textContent = this.checked
+            ? '⚡ Simpan & Buka Palang Sekarang'
+            : '💾 Simpan Kendaraan ke Database';
+        }
+      });
+    }
+    if ($('#quick-reg-form')) {
+      $('#quick-reg-form').addEventListener('submit', submitQuickRegister);
+    }
+
+    // QR Portal Modal
+    ['#sb-btn-qr', '#btn-open-qr-modal'].forEach(function (sel) {
+      var b = $(sel);
+      if (b) {
+        b.addEventListener('click', function () {
+          document.body.classList.remove('sb-open');
+          openQrPortalModal();
+        });
+      }
+    });
+    if ($('#qr-portal-close')) $('#qr-portal-close').addEventListener('click', closeQrPortalModal);
+    if ($('#qr-portal-modal')) {
+      $('#qr-portal-modal').addEventListener('click', function (e) {
+        if (e.target === this) closeQrPortalModal();
+      });
+    }
+    if ($('#qr-copy-url')) {
+      $('#qr-copy-url').addEventListener('click', function () {
+        var url = ($('#qr-portal-url-text') && $('#qr-portal-url-text').textContent) || (window.location.origin + '/register');
+        if (navigator.clipboard && navigator.clipboard.writeText) {
+          navigator.clipboard.writeText(url).then(function () {
+            toast('Link Portal Pendaftaran berhasil disalin!', 'success');
+          });
+        } else {
+          toast('Link: ' + url, 'info');
+        }
+      });
+    }
+
+    // Registered Vehicles Filters & Actions
+    if ($('#rv-q')) {
+      $('#rv-q').addEventListener('input', debounce(function () {
+        state.rvFilters.q = $('#rv-q').value;
+        renderRegisteredVehicles();
+      }, 180));
+    }
+    if ($('#rv-cat')) {
+      $('#rv-cat').addEventListener('change', function () {
+        state.rvFilters.cat = this.value;
+        renderRegisteredVehicles();
+      });
+    }
+    if ($('#rv-status')) {
+      $('#rv-status').addEventListener('change', function () {
+        state.rvFilters.status = this.value;
+        renderRegisteredVehicles();
+      });
+    }
+    if ($('#rv-reset')) {
+      $('#rv-reset').addEventListener('click', function () {
+        state.rvFilters = { q: '', cat: 'ALL', status: 'ALL' };
+        if ($('#rv-q')) $('#rv-q').value = '';
+        renderRegisteredVehicles();
+      });
+    }
+    if ($('#rv-refresh')) {
+      $('#rv-refresh').addEventListener('click', async function () {
+        await loadSupabaseVehicles();
+        toast('Data kendaraan terdaftar diperbarui dari Supabase.', 'success');
+      });
+    }
+    if ($('#rv-body')) {
+      $('#rv-body').addEventListener('click', function (e) {
+        var editBtn = e.target.closest('[data-act="edit-rv"]');
+        if (editBtn) {
+          openQuickRegModal({
+            editId: editBtn.dataset.id,
+            plate: editBtn.dataset.plate,
+            owner: editBtn.dataset.owner,
+            category: editBtn.dataset.cat,
+            nim_nip: editBtn.dataset.nim,
+            rfid: editBtn.dataset.rfid,
+            openGate: false
+          });
+          return;
+        }
+        var delBtn = e.target.closest('[data-act="del-rv"]');
+        if (delBtn) {
+          deleteRegisteredVehicle(delBtn.dataset.id, delBtn.dataset.plate);
+        }
+      });
+    }
+
     // Modal Konfirmasi Gate
     $('#confirm-gate-close').addEventListener('click', closeConfirmGateModal);
     $('#confirm-gate-cancel').addEventListener('click', closeConfirmGateModal);
@@ -2623,7 +3372,7 @@ body.modal-open{overflow:hidden}
     $('#modal').addEventListener('click', function (e) { if (e.target === this) closeModal(); });
 
     // Prevent backdrop scroll wheel/touch
-    ['#modal', '#confirm-gate-modal', '#notif-summary-modal', '#cam-cfg-modal'].forEach(function (id) {
+    ['#modal', '#confirm-gate-modal', '#notif-summary-modal', '#cam-cfg-modal', '#quick-reg-modal', '#qr-portal-modal'].forEach(function (id) {
       var m = $(id);
       if (!m) return;
       m.addEventListener('wheel', function (e) {
@@ -2674,6 +3423,8 @@ body.modal-open{overflow:hidden}
         closeConfirmGateModal();
         closeNotifSummaryModal();
         closeCamCfgModal();
+        closeQuickRegModal();
+        closeQrPortalModal();
         document.body.classList.remove('sb-open');
       }
     });
@@ -2721,6 +3472,7 @@ body.modal-open{overflow:hidden}
       try { live = localStorage.getItem('spg_live') !== '0'; } catch (e) { }
       setLive(live);
       loadSupabaseLogs();
+      loadSupabaseVehicles();
     } else {
       setLive(false);
     }

@@ -1,0 +1,1004 @@
+<!DOCTYPE html>
+<html lang="id">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1">
+<meta name="description" content="Portal Registrasi Cepat Kendaraan & Kartu RFID Civitas Akademika FT Untirta">
+<title>Registrasi Kendaraan Civitas | Smart Parking Gate FT Untirta</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+<script src="supabase_config.js"></script>
+<style>
+:root{
+  --gray-300:#cbd5e0;
+  --gray-400:#a0aec0;
+  --gray-500:#718096;
+  --white:#ffffff;
+  --red:#ff383c;
+  --blue:#0075ff;
+  --cyan:#2cd9ff;
+  --green:#01b574;
+  --orange:#ffb547;
+  --bg:#060b26;
+  --card-bg:linear-gradient(128deg,rgba(6,11,40,.88) 0%,rgba(10,14,35,.82) 100%);
+  --font:'Plus Jakarta Sans','Segoe UI',Helvetica,Arial,sans-serif;
+}
+*{box-sizing:border-box;-webkit-font-smoothing:antialiased}
+html,body{margin:0;min-height:100%}
+body{
+  font-family:var(--font);color:var(--white);font-size:14px;line-height:1.45;
+  background-color:var(--bg);
+  background-image:
+    url("img/Background.png"),
+    radial-gradient(ellipse at 85% 10%,rgba(0,117,255,.28),transparent 55%),
+    radial-gradient(ellipse at 10% 90%,rgba(44,217,255,.14),transparent 50%),
+    linear-gradient(159deg,#0f123b 0%,#090d2e 59%,#020515 100%);
+  background-size:cover;background-attachment:fixed;background-position:center;
+  display:flex;flex-direction:column;align-items:center;padding:24px 16px 40px;
+}
+[hidden]{display:none!important}
+a{color:inherit;text-decoration:none}
+button,input,select{font-family:inherit}
+
+.container{
+  width:100%;max-width:520px;margin:0 auto;
+}
+
+/* Header Brand */
+.brand-header{
+  display:flex;align-items:center;justify-content:space-between;gap:12px;
+  margin-bottom:20px;padding:12px 18px;border-radius:18px;
+  background:linear-gradient(128deg,rgba(6,11,38,.82) 0%,rgba(26,31,55,.52) 100%);
+  border:1px solid rgba(255,255,255,.1);backdrop-filter:blur(24px);
+  box-shadow:0 10px 28px rgba(0,0,0,.35);
+}
+.brand-left{display:flex;align-items:center;gap:12px}
+.logo{position:relative;display:inline-flex;width:44px;height:44px;flex-shrink:0}
+.logo svg,.logo img{width:100%;height:100%;object-fit:contain}
+.brand-title{font-weight:800;font-size:13px;letter-spacing:1.2px;line-height:1.25;color:#fff}
+.brand-sub{font-size:11px;color:var(--cyan);font-weight:600;margin-top:2px}
+.badge-fast{
+  display:inline-flex;align-items:center;gap:5px;padding:6px 10px;border-radius:99px;
+  background:rgba(1,181,116,.16);border:1px solid rgba(1,181,116,.4);
+  color:#42f5b3;font-size:11px;font-weight:700;white-space:nowrap;
+}
+
+/* Main Card */
+.reg-card{
+  border-radius:24px;padding:26px 24px;
+  background:var(--card-bg);
+  border:1px solid rgba(255,255,255,.1);
+  backdrop-filter:blur(50px);-webkit-backdrop-filter:blur(50px);
+  box-shadow:0 18px 50px rgba(0,0,0,.5);
+}
+
+/* Mode Tabs */
+.tabs{
+  display:grid;grid-template-columns:1fr 1fr;gap:6px;padding:5px;
+  border-radius:16px;background:rgba(4,8,28,.75);border:1px solid rgba(255,255,255,.07);
+  margin-bottom:22px;
+}
+.tab-btn{
+  border:0;border-radius:12px;padding:10px 12px;font-size:12.5px;font-weight:700;
+  color:var(--gray-400);background:transparent;cursor:pointer;transition:all .2s;
+  display:flex;align-items:center;justify-content:center;gap:7px;
+}
+.tab-btn:hover{color:#fff}
+.tab-btn.active{
+  background:var(--blue);color:#fff;
+  box-shadow:0 4px 14px rgba(0,117,255,.4);
+}
+
+/* Visual Indonesian License Plate Preview */
+.plate-preview-wrap{
+  display:flex;flex-direction:column;align-items:center;margin-bottom:20px;
+}
+.plate-preview-label{
+  font-size:11px;font-weight:600;color:var(--gray-400);text-transform:uppercase;
+  letter-spacing:1px;margin-bottom:8px;
+}
+.id-plate{
+  background:#0a0d14;border:3px solid #e2e8f0;border-radius:12px;
+  padding:10px 26px 8px;min-width:250px;text-align:center;
+  box-shadow:0 10px 25px rgba(0,0,0,.6), inset 0 0 0 1px rgba(255,255,255,.12);
+  position:relative;
+}
+.id-plate-num{
+  font-size:28px;font-weight:800;letter-spacing:3px;color:#fff;line-height:1.1;
+  font-family:'Plus Jakarta Sans',monospace;
+}
+.id-plate-sub{
+  font-size:10px;font-weight:700;letter-spacing:2px;color:var(--gray-400);margin-top:4px;
+}
+
+/* 3-Box Plate Input */
+.plate-grid{
+  display:grid;grid-template-columns:1fr 1.45fr 1.15fr;gap:10px;margin-bottom:6px;
+}
+.plate-box{
+  display:flex;flex-direction:column;gap:4px;
+}
+.plate-box span{
+  font-size:11px;color:var(--gray-400);font-weight:600;text-align:center;
+}
+.plate-box input{
+  width:100%;height:50px;border-radius:14px;border:1.5px solid rgba(226,232,240,.25);
+  background:rgba(255,255,255,.05);color:#fff;font-size:20px;font-weight:800;
+  text-align:center;text-transform:uppercase;letter-spacing:2px;outline:none;
+  transition:border-color .15s,background .15s,box-shadow .15s;
+}
+.plate-box input:focus{
+  border-color:var(--cyan);background:rgba(0,117,255,.12);
+  box-shadow:0 0 0 3px rgba(44,217,255,.18);
+}
+.plate-box input::placeholder{
+  color:rgba(160,174,192,.35);font-weight:600;font-size:16px;letter-spacing:1px;
+}
+
+/* Fields */
+.field{display:flex;flex-direction:column;gap:7px;margin-bottom:16px}
+.field label{font-size:12.5px;font-weight:600;color:#e2e8f0;display:flex;justify-content:space-between;align-items:center}
+.field label small{color:var(--gray-400);font-weight:500;font-size:11px}
+.input-wrap{
+  display:flex;align-items:center;gap:10px;height:46px;padding:0 14px;
+  border-radius:14px;border:1px solid rgba(226,232,240,.25);
+  background:rgba(255,255,255,.04);transition:border-color .15s,box-shadow .15s;
+}
+.input-wrap:focus-within{
+  border-color:var(--blue);box-shadow:0 0 0 3px rgba(0,117,255,.2);
+}
+.input-wrap input{
+  flex:1;min-width:0;background:transparent;border:0;outline:none;color:#fff;
+  font-size:14px;font-weight:500;
+}
+.input-wrap input::placeholder{color:var(--gray-500)}
+
+/* Category Cards */
+.cat-grid{
+  display:grid;grid-template-columns:repeat(3,1fr);gap:8px;
+}
+.cat-opt{
+  position:relative;cursor:pointer;
+}
+.cat-opt input{position:absolute;opacity:0;pointer-events:none}
+.cat-pill{
+  display:flex;flex-direction:column;align-items:center;justify-content:center;
+  gap:4px;padding:11px 8px;border-radius:14px;text-align:center;
+  border:1.5px solid rgba(255,255,255,.12);background:rgba(255,255,255,.03);
+  transition:all .15s;font-size:12px;font-weight:700;color:var(--gray-300);
+}
+.cat-pill small{font-size:10px;font-weight:500;color:var(--gray-400)}
+.cat-opt input:checked + .cat-pill{
+  border-color:var(--cyan);background:rgba(0,117,255,.22);color:#fff;
+  box-shadow:0 4px 14px rgba(0,117,255,.25);
+}
+.cat-opt input:checked + .cat-pill small{color:var(--cyan)}
+
+/* RFID Option Box */
+.rfid-mode-box{
+  border-radius:16px;padding:14px 16px;margin-bottom:18px;
+  background:linear-gradient(128deg,rgba(0,117,255,.14) 0%,rgba(44,217,255,.06) 100%);
+  border:1px solid rgba(44,217,255,.3);
+}
+.rfid-mode-head{
+  display:flex;align-items:flex-start;gap:10px;
+}
+.rfid-mode-title{font-weight:700;font-size:13px;color:#fff}
+.rfid-mode-desc{font-size:12px;color:var(--gray-300);margin-top:3px;line-height:1.45}
+.rfid-toggle-link{
+  display:inline-flex;align-items:center;gap:6px;margin-top:10px;
+  font-size:12px;font-weight:700;color:var(--cyan);background:transparent;border:0;
+  padding:0;cursor:pointer;
+}
+.rfid-toggle-link:hover{text-decoration:underline}
+
+/* Buttons */
+.btn{
+  display:inline-flex;align-items:center;justify-content:center;gap:8px;
+  border:0;border-radius:14px;padding:12px 18px;font-weight:700;font-size:13.5px;
+  color:#fff;cursor:pointer;transition:transform .15s,filter .15s,box-shadow .15s;
+}
+.btn:hover{filter:brightness(1.1)}
+.btn:active{transform:translateY(1px)}
+.btn:disabled{opacity:.5;cursor:not-allowed}
+.btn-primary{
+  background:linear-gradient(135deg,#0075ff 0%,#0052cc 100%);
+  box-shadow:0 8px 22px rgba(0,117,255,.38);
+}
+.btn-green{
+  background:linear-gradient(135deg,#01b574 0%,#018c5a 100%);
+  box-shadow:0 8px 22px rgba(1,181,116,.35);
+}
+.btn-ghost{
+  background:rgba(255,255,255,.08);border:1px solid rgba(255,255,255,.12);
+}
+.btn-block{width:100%;height:50px}
+
+/* Alert / Feedback */
+.msg-box{
+  border-radius:14px;padding:12px 14px;margin-bottom:16px;font-size:12.5px;line-height:1.45;
+}
+.msg-box.error{
+  background:rgba(255,56,60,.15);border:1px solid rgba(255,56,60,.4);color:#ff9ea0;
+}
+.msg-box.info{
+  background:rgba(44,217,255,.12);border:1px solid rgba(44,217,255,.35);color:#aef2ff;
+}
+
+/* Success State */
+.success-panel{
+  text-align:center;padding:8px 4px;animation:fadeIn .3s ease;
+}
+@keyframes fadeIn{from{opacity:0;transform:translateY(8px)}to{opacity:1;transform:none}}
+.success-icon{
+  width:64px;height:64px;border-radius:20px;margin:0 auto 14px;
+  background:rgba(1,181,116,.18);border:1.5px solid rgba(1,181,116,.45);
+  color:var(--green);display:flex;align-items:center;justify-content:center;
+}
+.ticket-card{
+  text-align:left;border-radius:18px;padding:16px 18px;margin:18px 0;
+  background:rgba(6,11,35,.85);border:1px solid rgba(255,255,255,.12);
+  display:flex;flex-direction:column;gap:9px;font-size:13px;
+}
+.ticket-row{display:flex;justify-content:space-between;align-items:center;gap:12px}
+.ticket-row span:first-child{color:var(--gray-400)}
+.ticket-row b{color:#fff;text-align:right}
+.status-pill{
+  display:inline-flex;align-items:center;gap:6px;padding:4px 10px;border-radius:99px;
+  font-size:11px;font-weight:700;
+}
+.status-pill.pending{
+  background:rgba(255,181,71,.18);color:var(--orange);border:1px solid rgba(255,181,71,.4);
+}
+.status-pill.active{
+  background:rgba(1,181,116,.18);color:#42f5b3;border:1px solid rgba(1,181,116,.4);
+}
+
+.step-guide{
+  text-align:left;border-radius:16px;padding:14px 16px;margin-bottom:18px;
+  background:rgba(255,181,71,.12);border:1px solid rgba(255,181,71,.35);
+  font-size:12.5px;color:#ffe2b0;line-height:1.5;
+}
+.step-guide b{color:#fff}
+
+.footer-links{
+  margin-top:20px;text-align:center;font-size:12px;color:var(--gray-400);
+  display:flex;justify-content:center;gap:16px;flex-wrap:wrap;
+}
+.footer-links a{color:var(--cyan);font-weight:600}
+.footer-links a:hover{text-decoration:underline}
+
+@media (max-width:460px){
+  .reg-card{padding:20px 16px}
+  .cat-grid{grid-template-columns:1fr}
+  .cat-pill{flex-direction:row;justify-content:space-between;padding:10px 14px}
+}
+</style>
+</head>
+<body>
+
+<div class="container">
+  <!-- Header -->
+  <header class="brand-header">
+    <div class="brand-left">
+      <span class="logo" id="brand-logo">
+        <img src="img/LOGO-UNTIRTA-1.png" alt="Logo Untirta" onerror="this.style.display='none'">
+      </span>
+      <div>
+        <div class="brand-title">SMART PARKING GATE</div>
+        <div class="brand-sub">FAKULTAS TEKNIK UNTIRTA</div>
+      </div>
+    </div>
+    <span class="badge-fast">⚡ &lt; 1 Menit</span>
+  </header>
+
+  <main class="reg-card">
+    <!-- Mode Navigation Tabs -->
+    <div class="tabs" role="tablist">
+      <button type="button" class="tab-btn active" id="tab-btn-reg" role="tab" aria-selected="true">
+        <span>📝 Daftar Baru</span>
+      </button>
+      <button type="button" class="tab-btn" id="tab-btn-check" role="tab" aria-selected="false">
+        <span>🔄 Cek / Ganti Plat</span>
+      </button>
+    </div>
+
+    <!-- ==========================================
+         TAB 1: FORM PENDAFTARAN CIVITAS (< 1 MENIT)
+         ========================================== -->
+    <section id="view-register">
+      <div id="reg-form-wrap">
+        <div style="text-align:center;margin-bottom:18px">
+          <h1 style="font-size:20px;font-weight:800;margin:0">Registrasi Kendaraan Civitas</h1>
+          <p style="font-size:12.5px;color:var(--gray-400);margin:4px 0 0">
+            Daftarkan Plat Nomor Anda, lalu aktifkan kartu RFID saat keluar gerbang.
+          </p>
+        </div>
+
+        <!-- Visual Plate Preview -->
+        <div class="plate-preview-wrap">
+          <div class="plate-preview-label">Preview Plat Nomor Kendaraan</div>
+          <div class="id-plate">
+            <div class="id-plate-num" id="plate-preview-text">A 1234 BC</div>
+            <div class="id-plate-sub">FT UNTIRTA &bull; DUAL-AUTH</div>
+          </div>
+        </div>
+
+        <form id="form-register" novalidate>
+          <!-- 3-Box Plate Input -->
+          <div class="field">
+            <label>
+              <span>1. Nomor Plat Kendaraan</span>
+              <small>Otomatis Huruf Kapital</small>
+            </label>
+            <div class="plate-grid">
+              <div class="plate-box">
+                <input type="text" id="p-prefix" maxlength="2" placeholder="A" autocomplete="off" aria-label="Kode Wilayah Plat" required>
+                <span>Wilayah (A/B)</span>
+              </div>
+              <div class="plate-box">
+                <input type="text" id="p-number" inputmode="numeric" maxlength="4" placeholder="1234" autocomplete="off" aria-label="Nomor Polisi" required>
+                <span>Angka (1-4 Digit)</span>
+              </div>
+              <div class="plate-box">
+                <input type="text" id="p-suffix" maxlength="3" placeholder="BC" autocomplete="off" aria-label="Seri Huruf Belakang">
+                <span>Seri Akhir</span>
+              </div>
+            </div>
+          </div>
+
+          <!-- Kategori Civitas -->
+          <div class="field">
+            <label><span>2. Kategori Civitas Akademika</span></label>
+            <div class="cat-grid">
+              <label class="cat-opt">
+                <input type="radio" name="category" value="STUDENT" checked>
+                <span class="cat-pill">
+                  <span>🎓 Mahasiswa</span>
+                  <small>Student</small>
+                </span>
+              </label>
+              <label class="cat-opt">
+                <input type="radio" name="category" value="LECTURER">
+                <span class="cat-pill">
+                  <span>👨‍🏫 Dosen</span>
+                  <small>Lecturer</small>
+                </span>
+              </label>
+              <label class="cat-opt">
+                <input type="radio" name="category" value="ACADEMIC COMMUNITY">
+                <span class="cat-pill">
+                  <span>🏛️ Tendik / Staf</span>
+                  <small>Civitas</small>
+                </span>
+              </label>
+            </div>
+          </div>
+
+          <!-- Nama Lengkap -->
+          <div class="field">
+            <label for="reg-name">
+              <span>3. Nama Lengkap</span>
+              <small>Sesuai KTM / Kartu Pegawai</small>
+            </label>
+            <div class="input-wrap">
+              <input type="text" id="reg-name" placeholder="Contoh: Muhammad Fathurrizki" autocomplete="name" required>
+            </div>
+          </div>
+
+          <!-- NIM / NIP -->
+          <div class="field">
+            <label for="reg-nim">
+              <span id="label-nim">4. Nomor Induk Mahasiswa (NIM)</span>
+              <small>Wajib diisi</small>
+            </label>
+            <div class="input-wrap">
+              <input type="text" id="reg-nim" inputmode="numeric" placeholder="Contoh: 3332200001" required>
+            </div>
+          </div>
+
+          <!-- Metode Aktivasi Kartu RFID -->
+          <div class="rfid-mode-box">
+            <div class="rfid-mode-head">
+              <span style="font-size:20px;line-height:1">💳</span>
+              <div style="flex:1">
+                <div class="rfid-mode-title">Aktivasi Kartu RFID Otomatis (Auto-Bind)</div>
+                <div class="rfid-mode-desc" id="rfid-mode-desc">
+                  Anda <b>tidak perlu mengetik kode kartu RFID</b>. Cukup bawa kartu RFID yang dibagikan dan <b>TAP pada Gerbang Keluar</b>—sistem akan mengikat kartu tersebut ke plat Anda secara otomatis!
+                </div>
+                <button type="button" class="rfid-toggle-link" id="btn-toggle-rfid-input">
+                  <span>+ Punya USB RFID Reader / Ingin input UID kartu sekarang?</span>
+                </button>
+              </div>
+            </div>
+
+            <div id="manual-rfid-wrap" style="margin-top:12px" hidden>
+              <div class="input-wrap" style="background:rgba(6,11,38,.75)">
+                <input type="text" id="reg-rfid" placeholder="Tempelkan kartu ke USB Reader atau ketik UID..." autocomplete="off">
+              </div>
+              <div style="font-size:11px;color:var(--gray-400);margin-top:5px">
+                💡 Kosongkan kotak di atas jika ingin aktivasi otomatis (*Auto-Bind*) saat tap pertama di gerbang keluar.
+              </div>
+            </div>
+          </div>
+
+          <div id="reg-error" class="msg-box error" role="alert" hidden></div>
+
+          <button type="submit" class="btn btn-primary btn-block" id="btn-submit-reg">
+            <span>🚀 Daftarkan Kendaraan Sekarang</span>
+          </button>
+        </form>
+      </div>
+
+      <!-- Layar Sukses Registrasi -->
+      <div id="reg-success-wrap" class="success-panel" hidden>
+        <div class="success-icon">
+          <svg width="34" height="34" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M20 6 9 17l-5-5"/></svg>
+        </div>
+        <h2 style="font-size:21px;font-weight:800;margin:0">Pendaftaran Berhasil!</h2>
+        <p style="font-size:13px;color:var(--gray-300);margin:6px 0 0" id="suc-subtitle">
+          Data kendaraan Anda telah tersimpan di sistem Smart Parking Gate FT Untirta.
+        </p>
+
+        <div class="ticket-card">
+          <div class="ticket-row">
+            <span>Plat Nomor</span>
+            <b style="font-size:16px;letter-spacing:1px;color:var(--cyan)" id="suc-plate">-</b>
+          </div>
+          <div class="ticket-row">
+            <span>Nama Pemilik</span>
+            <b id="suc-name">-</b>
+          </div>
+          <div class="ticket-row">
+            <span>Kategori</span>
+            <b id="suc-cat">-</b>
+          </div>
+          <div class="ticket-row">
+            <span>NIM / NIP</span>
+            <b id="suc-nim">-</b>
+          </div>
+          <div class="ticket-row">
+            <span>Status Kartu RFID</span>
+            <span id="suc-rfid-badge"></span>
+          </div>
+        </div>
+
+        <div class="step-guide" id="suc-autobind-guide">
+          <b>📌 Langkah Terakhir Saat Keluar Parkir (5 Detik):</b><br>
+          1. Bawa kendaraan Anda mendekati <b>Gerbang Keluar</b>.<br>
+          2. Kamera ALPR akan membaca plat <b id="suc-guide-plate">-</b>.<br>
+          3. <b>TAP kartu RFID baru</b> yang telah dibagikan ke Anda.<br>
+          4. Kartu langsung <b>terkunci otomatis (Auto-Bind)</b> ke plat Anda &amp; palang terbuka!
+        </div>
+
+        <div style="display:flex;gap:10px;flex-direction:column">
+          <button type="button" class="btn btn-ghost btn-block" id="btn-reg-another">
+            <span>+ Daftarkan Kendaraan Lain</span>
+          </button>
+        </div>
+      </div>
+    </section>
+
+    <!-- ==========================================
+         TAB 2: CEK STATUS & GANTI PLAT SEMENTARA
+         ========================================== -->
+    <section id="view-check" hidden>
+      <div style="text-align:center;margin-bottom:18px">
+        <h2 style="font-size:19px;font-weight:800;margin:0">Cek Status &amp; Ganti Plat Nomor</h2>
+        <p style="font-size:12.5px;color:var(--gray-400);margin:4px 0 0">
+          Cari menggunakan <b>NIM/NIP</b> atau <b>Plat Nomor</b> untuk mengecek status kartu RFID atau mengganti plat kendaraan Anda.
+        </p>
+      </div>
+
+      <form id="form-lookup" style="margin-bottom:18px">
+        <div class="field">
+          <label for="lookup-q"><span>Masukkan NIM / NIP atau Plat Nomor</span></label>
+          <div style="display:flex;gap:8px">
+            <div class="input-wrap" style="flex:1">
+              <input type="text" id="lookup-q" placeholder="Contoh: 3332200001 atau A 1234 BC" required>
+            </div>
+            <button type="submit" class="btn btn-primary" id="btn-lookup">Cari</button>
+          </div>
+        </div>
+      </form>
+
+      <div id="lookup-msg" class="msg-box error" hidden></div>
+
+      <div id="lookup-result" hidden>
+        <div class="ticket-card" style="margin-top:0">
+          <div class="ticket-row">
+            <span>Nama Civitas</span>
+            <b id="chk-name">-</b>
+          </div>
+          <div class="ticket-row">
+            <span>Kategori &amp; NIM/NIP</span>
+            <b id="chk-nim">-</b>
+          </div>
+          <div class="ticket-row">
+            <span>Plat Nomor Aktif</span>
+            <b style="font-size:15px;color:var(--cyan)" id="chk-plate">-</b>
+          </div>
+          <div class="ticket-row">
+            <span>Status Kartu RFID</span>
+            <span id="chk-rfid-status"></span>
+          </div>
+        </div>
+
+        <!-- Form Ganti Plat Kendaraan -->
+        <form id="form-update-plate" style="margin-top:16px;padding-top:16px;border-top:1px solid rgba(255,255,255,.1)">
+          <div class="field">
+            <label for="upd-plate">
+              <span>🔄 Ganti Plat Nomor Kendaraan (Kartu RFID Tetap Sama)</span>
+            </label>
+            <div class="input-wrap">
+              <input type="text" id="upd-plate" placeholder="Ketik Plat Baru (contoh: B 4567 XYZ)" style="text-transform:uppercase;font-weight:700" required>
+            </div>
+            <small style="color:var(--gray-400);font-size:11px">
+              Gunakan fitur ini jika hari ini Anda membawa mobil/motor yang berbeda agar tetap lolos verifikasi ganda di gerbang keluar.
+            </small>
+          </div>
+          <div id="upd-msg" class="msg-box info" hidden></div>
+          <button type="submit" class="btn btn-green btn-block" id="btn-upd-plate">
+            <span>Simpan Perubahan Plat Nomor</span>
+          </button>
+        </form>
+      </div>
+    </section>
+  </main>
+
+  <footer class="footer-links">
+    <span>&copy; 2026 Smart Parking Gate FT Untirta (Capstone A7)</span>
+    <span>&bull;</span>
+    <a href="/dashboard">Login Dashboard Petugas &rarr;</a>
+  </footer>
+</div>
+
+<script>
+(function () {
+  'use strict';
+
+  var $ = function (s) { return document.querySelector(s); };
+  var $$ = function (s) { return Array.prototype.slice.call(document.querySelectorAll(s)); };
+
+  function cleanPlatePart(s, lettersOnly, digitsOnly) {
+    var v = String(s || '').toUpperCase().replace(/[^A-Z0-9]/g, '');
+    if (lettersOnly) v = v.replace(/[^A-Z]/g, '');
+    if (digitsOnly) v = v.replace(/[^0-9]/g, '');
+    return v;
+  }
+
+  function normalizePlate(s) {
+    return String(s || '').toUpperCase().replace(/[^A-Z0-9]/g, '');
+  }
+
+  function formatFullPlate(raw) {
+    var clean = normalizePlate(raw);
+    var m = clean.match(/^([A-Z]{1,2})(\d{1,4})([A-Z]{0,3})$/);
+    if (m) {
+      return (m[1] + ' ' + m[2] + (m[3] ? ' ' + m[3] : '')).trim();
+    }
+    return String(raw || '').toUpperCase().trim().replace(/\s+/g, ' ');
+  }
+
+  // 1. Live Plate Preview & Smart Auto-Advance
+  var pPrefix = $('#p-prefix');
+  var pNumber = $('#p-number');
+  var pSuffix = $('#p-suffix');
+  var previewText = $('#plate-preview-text');
+
+  function getComposedPlate() {
+    var a = cleanPlatePart(pPrefix.value, true, false);
+    var b = cleanPlatePart(pNumber.value, false, true);
+    var c = cleanPlatePart(pSuffix.value, true, false);
+    if (!a && !b && !c) return '';
+    return [a, b, c].filter(Boolean).join(' ');
+  }
+
+  function updatePlatePreview() {
+    var full = getComposedPlate();
+    previewText.textContent = full || 'A 1234 BC';
+  }
+
+  // Support pasting full plate e.g. "B 3782 NHF" into the first box
+  pPrefix.addEventListener('paste', function (e) {
+    var text = (e.clipboardData || window.clipboardData).getData('text');
+    var clean = normalizePlate(text);
+    var m = clean.match(/^([A-Z]{1,2})(\d{1,4})([A-Z]{0,3})$/);
+    if (m) {
+      e.preventDefault();
+      pPrefix.value = m[1];
+      pNumber.value = m[2];
+      pSuffix.value = m[3] || '';
+      updatePlatePreview();
+      pSuffix.focus();
+    }
+  });
+
+  pPrefix.addEventListener('input', function () {
+    var raw = this.value.toUpperCase();
+    // Jika user mengetik angka di kotak wilayah, langsung pindahkan angka ke kotak nomor!
+    var digitMatch = raw.match(/\d+/);
+    this.value = cleanPlatePart(raw, true, false).slice(0, 2);
+    if (digitMatch) {
+      pNumber.value = digitMatch[0].slice(0, 4);
+      pNumber.focus();
+    } else if (raw.endsWith(' ') && this.value.length >= 1) {
+      pNumber.focus();
+    }
+    updatePlatePreview();
+  });
+
+  pNumber.addEventListener('input', function () {
+    var raw = this.value.toUpperCase();
+    var letterMatch = raw.match(/[A-Z]+/);
+    this.value = cleanPlatePart(raw, false, true).slice(0, 4);
+    if (letterMatch) {
+      pSuffix.value = letterMatch[0].slice(0, 3);
+      pSuffix.focus();
+    } else if (raw.endsWith(' ') && this.value.length >= 1) {
+      pSuffix.focus();
+    }
+    updatePlatePreview();
+  });
+
+  pSuffix.addEventListener('input', function () {
+    this.value = cleanPlatePart(this.value, true, false).slice(0, 3);
+    updatePlatePreview();
+  });
+
+  // Backspace navigation between plate boxes
+  pNumber.addEventListener('keydown', function (e) {
+    if (e.key === 'Backspace' && !this.value) pPrefix.focus();
+  });
+  pSuffix.addEventListener('keydown', function (e) {
+    if (e.key === 'Backspace' && !this.value) pNumber.focus();
+  });
+
+  // 2. Category Radio Change -> Update NIM/NIP Label
+  $$('input[name="category"]').forEach(function (radio) {
+    radio.addEventListener('change', function () {
+      var lbl = $('#label-nim');
+      var inp = $('#reg-nim');
+      if (this.value === 'STUDENT') {
+        lbl.textContent = '4. Nomor Induk Mahasiswa (NIM)';
+        inp.placeholder = 'Contoh: 3332200001';
+      } else if (this.value === 'LECTURER') {
+        lbl.textContent = '4. NIP / NIDN Dosen';
+        inp.placeholder = 'Contoh: 198501012010121001';
+      } else {
+        lbl.textContent = '4. NIP / ID Pegawai Civitas';
+        inp.placeholder = 'Contoh: 199002022015042001';
+      }
+    });
+  });
+
+  // 3. Toggle Optional RFID Input
+  $('#btn-toggle-rfid-input').addEventListener('click', function () {
+    var wrap = $('#manual-rfid-wrap');
+    var isHidden = wrap.hidden;
+    wrap.hidden = !isHidden;
+    this.querySelector('span').textContent = isHidden
+      ? '− Sembunyikan input UID manual (Gunakan Auto-Bind di Gerbang)'
+      : '+ Punya USB RFID Reader / Ingin input UID kartu sekarang?';
+    if (isHidden) {
+      $('#reg-rfid').focus();
+    } else {
+      $('#reg-rfid').value = '';
+    }
+  });
+
+  // Prevent Enter key inside RFID input from submitting prematurely if scanned via USB HID
+  $('#reg-rfid').addEventListener('keydown', function (e) {
+    if (e.key === 'Enter') {
+      e.preventDefault();
+      this.blur();
+    }
+  });
+
+  // 4. Tabs Switching
+  function switchTab(tab) {
+    var isReg = tab === 'reg';
+    $('#tab-btn-reg').classList.toggle('active', isReg);
+    $('#tab-btn-reg').setAttribute('aria-selected', isReg ? 'true' : 'false');
+    $('#tab-btn-check').classList.toggle('active', !isReg);
+    $('#tab-btn-check').setAttribute('aria-selected', !isReg ? 'true' : 'false');
+    $('#view-register').hidden = !isReg;
+    $('#view-check').hidden = isReg;
+  }
+  $('#tab-btn-reg').addEventListener('click', function () { switchTab('reg'); });
+  $('#tab-btn-check').addEventListener('click', function () { switchTab('check'); });
+
+  // 5. Supabase REST Helper
+  function getSupabaseConfig() {
+    var cfg = window.SUPABASE_CONFIG || {};
+    if (!cfg.url || !cfg.anonKey || cfg.url.includes('YOUR_PROJECT_ID')) {
+      throw new Error('Konfigurasi Supabase belum diatur pada supabase_config.js');
+    }
+    return {
+      base: cfg.url.replace(/\/+$/, ''),
+      headers: {
+        'apikey': cfg.anonKey,
+        'Authorization': 'Bearer ' + cfg.anonKey,
+        'Content-Type': 'application/json',
+        'Prefer': 'return=representation'
+      }
+    };
+  }
+
+  function showRegError(msg) {
+    var el = $('#reg-error');
+    el.textContent = msg;
+    el.hidden = !msg;
+  }
+
+  // 6. Submit Registration (< 1 Minute Flow)
+  $('#form-register').addEventListener('submit', async function (e) {
+    e.preventDefault();
+    showRegError('');
+
+    var a = cleanPlatePart(pPrefix.value, true, false);
+    var b = cleanPlatePart(pNumber.value, false, true);
+    var c = cleanPlatePart(pSuffix.value, true, false);
+
+    if (!a || !b) {
+      showRegError('Mohon lengkapi Kode Wilayah (contoh: A/B) dan Angka Plat Nomor.');
+      if (!a) pPrefix.focus(); else pNumber.focus();
+      return;
+    }
+
+    var fullPlate = [a, b, c].filter(Boolean).join(' ');
+    var normTarget = normalizePlate(fullPlate);
+    var catEl = document.querySelector('input[name="category"]:checked');
+    var category = catEl ? catEl.value : 'STUDENT';
+    var ownerName = ($('#reg-name').value || '').trim();
+    var nimNip = ($('#reg-nim').value || '').trim();
+    var manualRfid = ($('#reg-rfid').value || '').trim().toUpperCase() || null;
+
+    if (!ownerName) {
+      showRegError('Nama Lengkap wajib diisi.');
+      $('#reg-name').focus();
+      return;
+    }
+    if (!nimNip) {
+      showRegError('NIM / NIP wajib diisi.');
+      $('#reg-nim').focus();
+      return;
+    }
+
+    var btn = $('#btn-submit-reg');
+    var origHTML = btn.innerHTML;
+    btn.disabled = true;
+    btn.innerHTML = '<span>⏳ Menyimpan ke Sistem...</span>';
+
+    try {
+      var sb = getSupabaseConfig();
+
+      // Cek apakah plat nomor sudah ada di registered_vehicles
+      var checkRes = await fetch(sb.base + '/rest/v1/registered_vehicles?select=*', {
+        headers: sb.headers
+      });
+      var allVehicles = checkRes.ok ? (await checkRes.json()) : [];
+
+      var existingByPlate = null;
+      var existingByRfid = null;
+      allVehicles.forEach(function (v) {
+        if (normalizePlate(v.plate) === normTarget) existingByPlate = v;
+        if (manualRfid && v.rfid_uid && String(v.rfid_uid).trim().toUpperCase() === manualRfid) {
+          existingByRfid = v;
+        }
+      });
+
+      if (existingByRfid && (!existingByPlate || existingByRfid.id !== existingByPlate.id)) {
+        showRegError('Kartu RFID (' + manualRfid + ') sudah terdaftar pada kendaraan lain (' + existingByRfid.plate + ').');
+        btn.disabled = false;
+        btn.innerHTML = origHTML;
+        return;
+      }
+
+      var savedRow = null;
+
+      if (existingByPlate) {
+        // Jika plat sudah ada namun belum punya RFID (atau milik NIM yang sama), perbarui datanya
+        var payloadUpdate = {
+          plate: fullPlate,
+          owner: ownerName,
+          category: category,
+          nim_nip: nimNip
+        };
+        if (manualRfid) payloadUpdate.rfid_uid = manualRfid;
+
+        var patchRes = await fetch(sb.base + '/rest/v1/registered_vehicles?id=eq.' + existingByPlate.id, {
+          method: 'PATCH',
+          headers: sb.headers,
+          body: JSON.stringify(payloadUpdate)
+        });
+        if (!patchRes.ok) {
+          var errTxt = await patchRes.text();
+          throw new Error('Gagal memperbarui data kendaraan: ' + errTxt);
+        }
+        var patchedRows = await patchRes.json();
+        savedRow = (patchedRows && patchedRows[0]) || Object.assign({}, existingByPlate, payloadUpdate);
+      } else {
+        // Insert baru ke registered_vehicles
+        var payloadInsert = {
+          plate: fullPlate,
+          owner: ownerName,
+          category: category,
+          nim_nip: nimNip,
+          rfid_uid: manualRfid
+        };
+        var postRes = await fetch(sb.base + '/rest/v1/registered_vehicles', {
+          method: 'POST',
+          headers: sb.headers,
+          body: JSON.stringify(payloadInsert)
+        });
+        if (!postRes.ok) {
+          var postErr = await postRes.text();
+          throw new Error('Gagal menyimpan pendaftaran: ' + postErr);
+        }
+        var insertedRows = await postRes.json();
+        savedRow = (insertedRows && insertedRows[0]) || payloadInsert;
+      }
+
+      // Tampilkan Layar Sukses
+      $('#suc-plate').textContent = savedRow.plate || fullPlate;
+      $('#suc-guide-plate').textContent = savedRow.plate || fullPlate;
+      $('#suc-name').textContent = savedRow.owner || ownerName;
+      $('#suc-cat').textContent = savedRow.category || category;
+      $('#suc-nim').textContent = savedRow.nim_nip || nimNip;
+
+      var hasRfid = Boolean(savedRow.rfid_uid && String(savedRow.rfid_uid).trim());
+      if (hasRfid) {
+        $('#suc-rfid-badge').innerHTML = '<span class="status-pill active">🟢 AKTIF (UID: ' + savedRow.rfid_uid + ')</span>';
+        $('#suc-autobind-guide').innerHTML =
+          '<b>✅ Kartu RFID Anda Sudah Aktif!</b><br>' +
+          'Kendaraan <b>' + (savedRow.plate || fullPlate) + '</b> dan kartu RFID <b>' + savedRow.rfid_uid + '</b> sudah terhubung. Saat keluar gerbang, cukup tap kartu Anda dan palang akan terbuka otomatis.';
+      } else {
+        $('#suc-rfid-badge').innerHTML = '<span class="status-pill pending">⚡ SIAP AUTO-BIND DI GERBANG</span>';
+        $('#suc-autobind-guide').innerHTML =
+          '<b>📌 Langkah Terakhir Saat Keluar Parkir (5 Detik):</b><br>' +
+          '1. Bawa kendaraan Anda mendekati <b>Gerbang Keluar</b>.<br>' +
+          '2. Kamera ALPR akan membaca plat <b>' + (savedRow.plate || fullPlate) + '</b>.<br>' +
+          '3. <b>TAP kartu RFID baru</b> yang telah dibagikan ke Anda.<br>' +
+          '4. Kartu langsung <b>terkunci otomatis (Auto-Bind)</b> ke plat Anda &amp; palang terbuka!';
+      }
+
+      $('#reg-form-wrap').hidden = true;
+      $('#reg-success-wrap').hidden = false;
+    } catch (err) {
+      showRegError(err.message || 'Terjadi kesalahan jaringan saat menghubungi server.');
+    } finally {
+      btn.disabled = false;
+      btn.innerHTML = origHTML;
+    }
+  });
+
+  $('#btn-reg-another').addEventListener('click', function () {
+    $('#form-register').reset();
+    pPrefix.value = '';
+    pNumber.value = '';
+    pSuffix.value = '';
+    updatePlatePreview();
+    $('#reg-form-wrap').hidden = false;
+    $('#reg-success-wrap').hidden = true;
+    pPrefix.focus();
+  });
+
+  // 7. Tab 2: Lookup & Update Plate
+  var currentFoundVehicle = null;
+
+  $('#form-lookup').addEventListener('submit', async function (e) {
+    e.preventDefault();
+    var q = ($('#lookup-q').value || '').trim();
+    if (!q) return;
+
+    var msgEl = $('#lookup-msg');
+    var resWrap = $('#lookup-result');
+    var updMsg = $('#upd-msg');
+    msgEl.hidden = true;
+    updMsg.hidden = true;
+
+    var btn = $('#btn-lookup');
+    btn.disabled = true;
+    btn.textContent = '...';
+
+    try {
+      var sb = getSupabaseConfig();
+      var r = await fetch(sb.base + '/rest/v1/registered_vehicles?select=*&order=id.desc', {
+        headers: sb.headers
+      });
+      var rows = r.ok ? (await r.json()) : [];
+      var qNorm = normalizePlate(q);
+      var qLower = q.toLowerCase();
+
+      var found = rows.find(function (v) {
+        return normalizePlate(v.plate) === qNorm ||
+               String(v.nim_nip || '').trim().toLowerCase() === qLower ||
+               String(v.rfid_uid || '').trim().toLowerCase() === qLower ||
+               String(v.owner || '').trim().toLowerCase().indexOf(qLower) !== -1;
+      });
+
+      if (!found) {
+        resWrap.hidden = true;
+        msgEl.textContent = 'Data tidak ditemukan untuk "' + q + '". Silakan daftar melalui tab Daftar Baru.';
+        msgEl.hidden = false;
+        return;
+      }
+
+      currentFoundVehicle = found;
+      renderFoundVehicle(found);
+      resWrap.hidden = false;
+    } catch (err) {
+      msgEl.textContent = 'Gagal memeriksa data: ' + (err.message || err);
+      msgEl.hidden = false;
+    } finally {
+      btn.disabled = false;
+      btn.textContent = 'Cari';
+    }
+  });
+
+  function renderFoundVehicle(v) {
+    $('#chk-name').textContent = v.owner || v.owner_name || '-';
+    $('#chk-nim').textContent = (v.category || 'STUDENT') + ' • ' + (v.nim_nip || '-');
+    $('#chk-plate').textContent = v.plate || '-';
+    $('#upd-plate').value = v.plate || '';
+    var hasRfid = Boolean(v.rfid_uid && String(v.rfid_uid).trim());
+    if (hasRfid) {
+      $('#chk-rfid-status').innerHTML = '<span class="status-pill active">🟢 AKTIF (UID: ' + v.rfid_uid + ')</span>';
+    } else {
+      $('#chk-rfid-status').innerHTML = '<span class="status-pill pending">⚡ MENUNGGU TAP PERTAMA DI GERBANG</span>';
+    }
+  }
+
+  $('#form-update-plate').addEventListener('submit', async function (e) {
+    e.preventDefault();
+    if (!currentFoundVehicle) return;
+
+    var rawNew = ($('#upd-plate').value || '').trim();
+    var formattedNew = formatFullPlate(rawNew);
+    if (normalizePlate(formattedNew).length < 3) {
+      var updMsg = $('#upd-msg');
+      updMsg.className = 'msg-box error';
+      updMsg.textContent = 'Format plat nomor baru tidak valid.';
+      updMsg.hidden = false;
+      return;
+    }
+
+    var btn = $('#btn-upd-plate');
+    btn.disabled = true;
+    btn.textContent = 'Menyimpan...';
+
+    try {
+      var sb = getSupabaseConfig();
+      var res = await fetch(sb.base + '/rest/v1/registered_vehicles?id=eq.' + currentFoundVehicle.id, {
+        method: 'PATCH',
+        headers: sb.headers,
+        body: JSON.stringify({ plate: formattedNew })
+      });
+      if (!res.ok) {
+        var t = await res.text();
+        throw new Error(t);
+      }
+      var updated = await res.json();
+      currentFoundVehicle = (updated && updated[0]) || Object.assign({}, currentFoundVehicle, { plate: formattedNew });
+      renderFoundVehicle(currentFoundVehicle);
+
+      var updMsgOk = $('#upd-msg');
+      updMsgOk.className = 'msg-box info';
+      updMsgOk.textContent = '✅ Plat nomor berhasil diperbarui menjadi ' + formattedNew + '!';
+      updMsgOk.hidden = false;
+    } catch (err) {
+      var updMsgErr = $('#upd-msg');
+      updMsgErr.className = 'msg-box error';
+      updMsgErr.textContent = 'Gagal memperbarui plat (pastikan plat belum terdaftar pada akun lain).';
+      updMsgErr.hidden = false;
+    } finally {
+      btn.disabled = false;
+      btn.textContent = 'Simpan Perubahan Plat Nomor';
+    }
+  });
+})();
+</script>
+</body>
+</html>

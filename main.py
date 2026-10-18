@@ -155,20 +155,28 @@ class SmartParkingExitGate:
         return None
 
     def handle_exit_success(self, info: dict):
-        """Aksi saat KEDUA PARAMETER (Plat + RFID) COCOK."""
+        """Aksi saat KEDUA PARAMETER (Plat + RFID) COCOK atau AUTO-BIND Berhasil."""
         plate = info.get("plate", "-")
         owner = info.get("owner_name", "Civitas")
         cat = info.get("category", "STUDENT")
+        auto_bound = info.get("auto_bound", False)
 
-        print(f"\n>>> [AKSES KELUAR DITERIMA \u2705] PLAT & RFID COCOK: {owner} ({plate})")
-
-        # 1. Update LCD 20x4
-        self.hw.lcd.display(
-            "*** AKSES KELUAR ***",
-            f"{plate} ({cat[:7]})",
-            f"{owner[:20]}",
-            "HATI-HATI DI JALAN:)"
-        )
+        if auto_bound:
+            print(f"\n>>> [AUTO-BIND RFID & AKSES KELUAR DITERIMA \u2705] Kartu '{info.get('rfid_uid')}' resmi terikat ke {owner} ({plate})!")
+            self.hw.lcd.display(
+                "*AKTIVASI KARTU OK!*",
+                f"{plate} ({cat[:7]})",
+                f"{owner[:20]}",
+                "HATI-HATI DI JALAN:)"
+            )
+        else:
+            print(f"\n>>> [AKSES KELUAR DITERIMA \u2705] PLAT & RFID COCOK: {owner} ({plate})")
+            self.hw.lcd.display(
+                "*** AKSES KELUAR ***",
+                f"{plate} ({cat[:7]})",
+                f"{owner[:20]}",
+                "HATI-HATI DI JALAN:)"
+            )
 
         # 2. Bunyikan Buzzer 2x
         self.hw.buzzer_beep(0.12, 2)
@@ -517,7 +525,12 @@ class SmartParkingExitGate:
             cv2.imshow("Smart Parking Gate ALPR - FT Untirta", annotated_disp)
             cv2.waitKey(800)
 
-        # 2. Ambil Kartu RFID
+        # 2. Ambil Kartu RFID (Cek juga apakah plat sedang menunggu Auto-Bind kartu baru)
+        veh_precheck = self.db.lookup_vehicle(plate_text)
+        needs_bind = bool(veh_precheck.get("matched") and veh_precheck.get("needs_rfid_bind"))
+        if needs_bind:
+            print(f"  [AUTO-BIND SIAP \u26a1] Plat '{plate_text}' ({veh_precheck.get('owner_name')}) terdaftar mandiri & menunggu aktivasi kartu RFID pertama!")
+
         rfid_uid = initial_rfid
         if not rfid_uid:
             # Pengendara belum tap kartu, minta tap sekarang
@@ -531,12 +544,20 @@ class SmartParkingExitGate:
 
             while time.time() - start_wait < timeout:
                 remaining = int(timeout - (time.time() - start_wait))
-                self.hw.lcd.display(
-                    f"PLAT: {plate_text[:14]}",
-                    "SILAKAN TAP KARTU...",
-                    "RFID CIVITAS ANDA   ",
-                    f"WAKTU: {remaining} DETIK"
-                )
+                if needs_bind:
+                    self.hw.lcd.display(
+                        f"PLAT: {plate_text[:14]}",
+                        "AKTIVASI KARTU BARU!",
+                        "TAP RFID KOSONG ANDA",
+                        f"WAKTU: {remaining} DETIK"
+                    )
+                else:
+                    self.hw.lcd.display(
+                        f"PLAT: {plate_text[:14]}",
+                        "SILAKAN TAP KARTU...",
+                        "RFID CIVITAS ANDA   ",
+                        f"WAKTU: {remaining} DETIK"
+                    )
 
                 # Jika mode preview kamera aktif, tetap perbarui frame agar tidak macet
                 if getattr(config, 'SHOW_PREVIEW', True) and self.cap and self.cap.isOpened():
@@ -547,22 +568,28 @@ class SmartParkingExitGate:
                         cv2.rectangle(disp, (0, 0), (dw, 55), (20, 20, 20), -1)
                         cv2.putText(disp, f"PLAT TERDETEKSI: {plate_text} ({int(conf*100)}%)", (15, 25),
                                     cv2.FONT_HERSHEY_SIMPLEX, 0.65, (0, 255, 0), 2)
-                        cv2.putText(disp, f"SILAKAN TAP RFID (Sisa: {remaining}s) | TEKAN [SPASI] UNTUK SIMULASI TAP",
-                                    (15, 48), cv2.FONT_HERSHEY_SIMPLEX, 0.45, (0, 255, 255), 1)
+                        sub_prompt = (
+                            f"AKTIVASI AUTO-BIND: TAP RFID BARU ({remaining}s) | [SPASI]: SIMULASI"
+                            if needs_bind else
+                            f"SILAKAN TAP RFID (Sisa: {remaining}s) | TEKAN [SPASI] UNTUK SIMULASI TAP"
+                        )
+                        cv2.putText(disp, sub_prompt,
+                                    (15, 48), cv2.FONT_HERSHEY_SIMPLEX, 0.43, (0, 255, 255), 1)
                         cv2.imshow("Smart Parking Gate ALPR - FT Untirta", disp)
                         k = cv2.waitKey(60) & 0xFF
                         if k == ord(' ') or k == 13 or self.terminal_trigger:
                             self.terminal_trigger = False
                             matched_veh = self.db.lookup_vehicle(plate_text)
                             if matched_veh.get("matched"):
-                                for item in getattr(self.db, 'registered_cache', []):
-                                    if item.get("plate") == matched_veh.get("plate"):
-                                        rfid_uid = item.get("rfid_uid")
-                                        break
-                                if not rfid_uid:
-                                    rfid_uid = "0001234567"
+                                existing_uid = matched_veh.get("rfid_uid")
+                                if existing_uid:
+                                    rfid_uid = existing_uid
+                                else:
+                                    # Simulasi kartu RFID kosong baru untuk Auto-Bind
+                                    rfid_uid = f"0009{int(time.time()) % 1000000:06d}"
                             else:
-                                rfid_uid = "MOCK_RFID_TAP"
+                                # Simulasi kartu RFID baru yang di-tap oleh pengendara belum terdaftar
+                                rfid_uid = f"0008{int(time.time()) % 1000000:06d}"
                             print(f"  [SIMULASI PC \u2705] Tap RFID disimulasikan via Terminal/Kamera: {rfid_uid}")
                             self.hw.buzzer_beep(0.08, 1)
                             break
@@ -576,7 +603,13 @@ class SmartParkingExitGate:
                 # Cek jika ada trigger dari terminal VSCode saat preview tidak aktif
                 if self.terminal_trigger:
                     self.terminal_trigger = False
-                    rfid_uid = "0001234567"
+                    matched_veh = self.db.lookup_vehicle(plate_text)
+                    if matched_veh.get("matched") and matched_veh.get("rfid_uid"):
+                        rfid_uid = matched_veh.get("rfid_uid")
+                    elif matched_veh.get("matched"):
+                        rfid_uid = f"0009{int(time.time()) % 1000000:06d}"
+                    else:
+                        rfid_uid = f"0008{int(time.time()) % 1000000:06d}"
                     print(f"  [SIMULASI PC \u2705] Tap RFID disimulasikan via Terminal VSCode: {rfid_uid}")
                     self.hw.buzzer_beep(0.08, 1)
                     break

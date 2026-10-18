@@ -38,11 +38,11 @@ class SupabaseLogger:
 
         # Fallback offline data jika Supabase belum dikonfigurasi
         self.fallback_vehicles = [
-            {"plate": "B 3782 NHF", "owner_name": "Elkan Baggot", "category": "STUDENT", "nim_nip": "3332200001", "rfid_uid": "0001234567"},
-            {"plate": "B 1234 VZN", "owner_name": "Shabrina Zahra", "category": "STUDENT", "nim_nip": "3332200002", "rfid_uid": "0002345678"},
-            {"plate": "B 3501 NZN", "owner_name": "Rocky Alfanz", "category": "LECTURER", "nim_nip": "198501012010121001", "rfid_uid": "0003456789"},
-            {"plate": "A 9816 XY", "owner_name": "Bundo", "category": "ACADEMIC COMMUNITY", "nim_nip": "199002022015042001", "rfid_uid": "0004567890"},
-            {"plate": "A 2145 JZ", "owner_name": "Sohari", "category": "ACADEMIC COMMUNITY", "nim_nip": "199103032016051002", "rfid_uid": "0005678901"}
+            {"id": 1, "plate": "B 3782 NHF", "owner": "Elkan Baggot", "owner_name": "Elkan Baggot", "category": "STUDENT", "nim_nip": "3332200001", "rfid_uid": "0001234567"},
+            {"id": 2, "plate": "B 1234 VZN", "owner": "Shabrina Zahra", "owner_name": "Shabrina Zahra", "category": "STUDENT", "nim_nip": "3332200002", "rfid_uid": "0002345678"},
+            {"id": 3, "plate": "B 3501 NZN", "owner": "Rocky Alfanz", "owner_name": "Rocky Alfanz", "category": "LECTURER", "nim_nip": "198501012010121001", "rfid_uid": "0003456789"},
+            {"id": 4, "plate": "A 9816 XY", "owner": "Bundo", "owner_name": "Bundo", "category": "ACADEMIC COMMUNITY", "nim_nip": "199002022015042001", "rfid_uid": "0004567890"},
+            {"id": 5, "plate": "A 2145 JZ", "owner": "Sohari", "owner_name": "Sohari", "category": "ACADEMIC COMMUNITY", "nim_nip": "199103032016051002", "rfid_uid": "0005678901"}
         ]
 
         if not self.enabled:
@@ -67,6 +67,16 @@ class SupabaseLogger:
         except Exception as e:
             print(f"[WARN] Belum dapat terhubung ke Supabase: {e}")
 
+    @staticmethod
+    def _clean_rfid(val) -> str:
+        """Bersihkan nilai rfid_uid; kembalikan string kosong jika NULL / belum di-bind."""
+        if val is None:
+            return ""
+        s = str(val).strip().upper()
+        if s in ("", "NONE", "NULL", "PENDING", "-", "WAITING"):
+            return ""
+        return s
+
     def refresh_registered_cache(self, force: bool = False):
         """
         Sinkronkan daftar registered_vehicles dari Supabase ke memory lokal.
@@ -85,20 +95,51 @@ class SupabaseLogger:
             if res.status_code == 200:
                 self.registered_cache = res.json()
                 self.last_cache_refresh = now
-                # print(f"  [CACHE] {len(self.registered_cache)} data kendaraan terdaftar termuat.")
         except Exception as e:
             print(f"  [WARN] Gagal memperbarui cache kendaraan: {e}")
+
+    def bind_rfid_to_vehicle(self, row_id, plate_text: str, rfid_uid: str) -> bool:
+        """
+        Otomatis mengikat (Auto-Bind) UID kartu RFID baru ke kendaraan yang sudah
+        mendaftar mandiri via Web Portal (status rfid_uid sebelumnya NULL/kosong).
+        """
+        clean_uid = self._clean_rfid(rfid_uid)
+        if not clean_uid:
+            return False
+
+        # 1. Update ke Supabase jika terhubung
+        if self.enabled:
+            try:
+                if row_id is not None:
+                    patch_url = f"{self.url}/rest/v1/registered_vehicles?id=eq.{row_id}"
+                else:
+                    patch_url = f"{self.url}/rest/v1/registered_vehicles?plate=eq.{requests.utils.quote(plate_text)}"
+                res = requests.patch(patch_url, headers=self.headers, json={"rfid_uid": clean_uid}, timeout=5)
+                if res.status_code in (200, 204):
+                    print(f"  [AUTO-BIND SUPABASE OK] Kartu RFID '{clean_uid}' resmi terikat ke plat '{plate_text}'!")
+                    # Update cache lokal secara langsung
+                    target_norm = normalize_plate(plate_text)
+                    for item in self.registered_cache:
+                        if normalize_plate(item.get("plate", "")) == target_norm:
+                            item["rfid_uid"] = clean_uid
+                    return True
+                else:
+                    print(f"  [AUTO-BIND WARN] Gagal update rfid_uid di Supabase ({res.status_code}): {res.text[:100]}")
+            except Exception as e:
+                print(f"  [AUTO-BIND ERROR] Koneksi gagal saat auto-bind RFID: {e}")
+
+        # 2. Update di fallback lokal jika mode simulasi/offline
+        target_norm = normalize_plate(plate_text)
+        for item in self.fallback_vehicles:
+            if normalize_plate(item.get("plate", "")) == target_norm:
+                item["rfid_uid"] = clean_uid
+                return True
+        return False
 
     def lookup_vehicle(self, plate_text: str) -> dict:
         """
         Mencocokkan plat yang terdeteksi OCR dengan data di registered_vehicles.
         Menggunakan normalisasi karakter (mengabaikan spasi dan perbedaan huruf kapital/kecil).
-        
-        Mengembalikan dictionary lengkap:
-        - status: 'TERDAFTAR' atau 'TIDAK TERDAFTAR'
-        - owner_name: Nama pemilik terdaftar atau 'Tamu / Belum Terdaftar'
-        - category: 'STUDENT', 'LECTURER', atau 'ACADEMIC COMMUNITY'
-        - nim_nip: NIM / NIP pemilik atau '-'
         """
         target_norm = normalize_plate(plate_text)
         if not target_norm:
@@ -108,50 +149,49 @@ class SupabaseLogger:
                 "owner_name": "Tamu / Belum Terdaftar",
                 "category": "ACADEMIC COMMUNITY",
                 "nim_nip": "-",
+                "rfid_uid": "",
+                "needs_rfid_bind": False,
                 "status": "TIDAK TERDAFTAR"
             }
 
         # 1. Mode Supabase Aktif
         if self.enabled:
             self.refresh_registered_cache()
-            
-            # Cari di cache
-            for item in self.registered_cache:
-                db_norm = normalize_plate(item.get("plate", ""))
-                if db_norm == target_norm:
-                    return {
-                        "matched": True,
-                        "plate": item.get("plate", plate_text),
-                        "owner_name": item.get("owner_name") or item.get("owner") or "Civitas Untirta",
-                        "category": item.get("category", "STUDENT"),
-                        "nim_nip": item.get("nim_nip", "-") or "-",
-                        "status": "TERDAFTAR"
-                    }
 
-            # Jika tidak ada di cache, coba refresh paksa (mungkin baru ditambahkan)
-            self.refresh_registered_cache(force=True)
-            for item in self.registered_cache:
-                db_norm = normalize_plate(item.get("plate", ""))
-                if db_norm == target_norm:
-                    return {
-                        "matched": True,
-                        "plate": item.get("plate", plate_text),
-                        "owner_name": item.get("owner_name") or item.get("owner") or "Civitas Untirta",
-                        "category": item.get("category", "STUDENT"),
-                        "nim_nip": item.get("nim_nip", "-") or "-",
-                        "status": "TERDAFTAR"
-                    }
+            for attempt in range(2):
+                for item in self.registered_cache:
+                    db_norm = normalize_plate(item.get("plate", ""))
+                    if db_norm == target_norm:
+                        db_rfid = self._clean_rfid(item.get("rfid_uid"))
+                        return {
+                            "matched": True,
+                            "id": item.get("id"),
+                            "plate": item.get("plate", plate_text),
+                            "owner_name": item.get("owner") or item.get("owner_name") or "Civitas Untirta",
+                            "category": item.get("category", "STUDENT"),
+                            "nim_nip": item.get("nim_nip", "-") or "-",
+                            "rfid_uid": db_rfid,
+                            "needs_rfid_bind": (not bool(db_rfid)),
+                            "status": "TERDAFTAR"
+                        }
+                if attempt == 0:
+                    # Jika tidak ada di cache, refresh paksa (siapa tahu baru saja daftar via QR HP)
+                    self.refresh_registered_cache(force=True)
 
         # 2. Mode Demo / Fallback Offline
         for item in self.fallback_vehicles:
             fb_norm = normalize_plate(item.get("plate", ""))
             if fb_norm == target_norm:
+                db_rfid = self._clean_rfid(item.get("rfid_uid"))
                 return {
                     "matched": True,
+                    "id": item.get("id"),
                     "plate": item.get("plate", plate_text),
-                    "owner_name": item.get("owner_name", "Civitas Untirta"),
+                    "owner_name": item.get("owner") or item.get("owner_name") or "Civitas Untirta",
                     "category": item.get("category", "STUDENT"),
                     "nim_nip": item.get("nim_nip", "-") or "-",
+                    "rfid_uid": db_rfid,
+                    "needs_rfid_bind": (not bool(db_rfid)),
                     "status": "TERDAFTAR"
                 }
 
@@ -162,6 +202,8 @@ class SupabaseLogger:
             "owner_name": "Tamu / Belum Terdaftar",
             "category": "ACADEMIC COMMUNITY",
             "nim_nip": "-",
+            "rfid_uid": "",
+            "needs_rfid_bind": False,
             "status": "TIDAK TERDAFTAR"
         }
 
@@ -169,7 +211,7 @@ class SupabaseLogger:
         """
         Mencocokkan UID kartu RFID dengan tabel registered_vehicles di Supabase.
         """
-        clean_uid = str(rfid_uid).strip().upper()
+        clean_uid = self._clean_rfid(rfid_uid)
         if not clean_uid:
             return {
                 "matched": False,
@@ -185,11 +227,11 @@ class SupabaseLogger:
         if self.enabled:
             self.refresh_registered_cache()
             for item in self.registered_cache:
-                if str(item.get("rfid_uid", "")).strip().upper() == clean_uid:
+                if self._clean_rfid(item.get("rfid_uid")) == clean_uid:
                     return {
                         "matched": True,
                         "plate": item.get("plate", "RFID_CARD"),
-                        "owner_name": item.get("owner_name") or item.get("owner") or "Civitas Untirta",
+                        "owner_name": item.get("owner") or item.get("owner_name") or "Civitas Untirta",
                         "category": item.get("category", "STUDENT"),
                         "nim_nip": item.get("nim_nip", "-") or "-",
                         "status": "TERDAFTAR",
@@ -198,11 +240,11 @@ class SupabaseLogger:
 
         # 2. Mode Demo / Fallback Offline
         for item in self.fallback_vehicles:
-            if str(item.get("rfid_uid", "")).strip().upper() == clean_uid:
+            if self._clean_rfid(item.get("rfid_uid")) == clean_uid:
                 return {
                     "matched": True,
                     "plate": item.get("plate", "RFID_CARD"),
-                    "owner_name": item.get("owner_name", "Civitas Untirta"),
+                    "owner_name": item.get("owner") or item.get("owner_name") or "Civitas Untirta",
                     "category": item.get("category", "STUDENT"),
                     "nim_nip": item.get("nim_nip", "-") or "-",
                     "status": "TERDAFTAR",
@@ -219,23 +261,37 @@ class SupabaseLogger:
             "method": "RFID"
         }
 
+    def _is_rfid_used_by_other(self, rfid_uid: str, current_plate_norm: str) -> bool:
+        """Cek apakah UID kartu RFID sudah terikat pada kendaraan/plat nomor lain."""
+        clean_uid = self._clean_rfid(rfid_uid)
+        if not clean_uid:
+            return False
+        source_list = self.registered_cache if (self.enabled and self.registered_cache) else self.fallback_vehicles
+        for item in source_list:
+            item_rfid = self._clean_rfid(item.get("rfid_uid"))
+            item_plate = normalize_plate(item.get("plate", ""))
+            if item_rfid and item_rfid == clean_uid and item_plate != current_plate_norm:
+                return True
+        return False
+
     def verify_dual_auth(self, plate_text: str, rfid_uid: str) -> dict:
         """
-        Verifikasi GANDA: Plat Nomor DAN Kartu RFID KEDUANYA HARUS COCOK
-        pada baris kendaraan yang sama di registered_vehicles.
-        
-        Kondisi:
-        1. Plat dan RFID cocok pada kendaraan terdaftar yang sama -> verified = True
-        2. Plat terdaftar tetapi RFID tidak cocok -> verified = False, status = 'TIDAK COCOK'
-        3. Plat belum terdaftar di sistem -> verified = False, status = 'TIDAK TERDAFTAR'
+        Verifikasi GANDA + Auto-Bind Tap Pertama:
+        1. Jika Plat terdaftar dan RFID cocok -> verified = True (reason = 'MATCH')
+        2. Jika Plat terdaftar via Portal Mandiri (rfid_uid masih NULL/kosong) dan kartu RFID
+           yang di-tap belum dipakai plat lain -> Otomatis Auto-Bind RFID ke plat tersebut!
+           verified = True (reason = 'AUTO_BOUND', auto_bound = True)
+        3. Jika Plat terdaftar tetapi RFID salah / milik orang lain -> verified = False ('RFID_MISMATCH')
+        4. Jika Plat belum terdaftar di sistem -> verified = False ('UNREGISTERED')
         """
         target_plate = normalize_plate(plate_text)
-        target_rfid = str(rfid_uid or "").strip().upper()
+        target_rfid = self._clean_rfid(rfid_uid)
 
         if not target_plate or not target_rfid:
             return {
                 "verified": False,
                 "matched": False,
+                "auto_bound": False,
                 "plate": plate_text or "UNKNOWN",
                 "owner_name": "Tamu / Belum Terdaftar",
                 "category": "ACADEMIC COMMUNITY",
@@ -245,16 +301,17 @@ class SupabaseLogger:
                 "reason": "PARAM_EMPTY"
             }
 
+        matched_row = None
+
         # 1. Cek di Supabase jika aktif
         if self.enabled:
             self.refresh_registered_cache()
-            
-            matched_row = None
             for item in self.registered_cache:
                 if normalize_plate(item.get("plate", "")) == target_plate:
                     matched_row = item
                     break
 
+            # Refresh paksa jika belum ketemu (mendukung pendaftaran baru < 1 menit yang lalu)
             if not matched_row:
                 self.refresh_registered_cache(force=True)
                 for item in self.registered_cache:
@@ -262,67 +319,83 @@ class SupabaseLogger:
                         matched_row = item
                         break
 
-            if matched_row:
-                db_rfid = str(matched_row.get("rfid_uid", "")).strip().upper()
-                owner = matched_row.get("owner_name") or matched_row.get("owner") or "Civitas Untirta"
-                if db_rfid and db_rfid == target_rfid:
-                    return {
-                        "verified": True,
-                        "matched": True,
-                        "plate": matched_row.get("plate", plate_text),
-                        "owner_name": owner,
-                        "category": matched_row.get("category", "STUDENT"),
-                        "nim_nip": matched_row.get("nim_nip", "-") or "-",
-                        "rfid_uid": db_rfid,
-                        "status": "TERDAFTAR",
-                        "reason": "MATCH"
-                    }
-                else:
+        # 2. Cek di Fallback Data jika belum ketemu dan offline
+        if not matched_row:
+            for item in self.fallback_vehicles:
+                if normalize_plate(item.get("plate", "")) == target_plate:
+                    matched_row = item
+                    break
+
+        if matched_row:
+            db_rfid = self._clean_rfid(matched_row.get("rfid_uid"))
+            owner = matched_row.get("owner") or matched_row.get("owner_name") or "Civitas Untirta"
+            plate_canonical = matched_row.get("plate", plate_text)
+            category = matched_row.get("category", "STUDENT")
+            nim_nip = matched_row.get("nim_nip", "-") or "-"
+
+            # KASUS A: Kendaraan baru daftar mandiri via Web (rfid_uid masih kosong) -> AUTO-BIND!
+            if not db_rfid:
+                if self._is_rfid_used_by_other(target_rfid, target_plate):
                     return {
                         "verified": False,
                         "matched": False,
-                        "plate": matched_row.get("plate", plate_text),
+                        "auto_bound": False,
+                        "plate": plate_canonical,
                         "owner_name": owner,
-                        "category": matched_row.get("category", "STUDENT"),
-                        "nim_nip": matched_row.get("nim_nip", "-") or "-",
+                        "category": category,
+                        "nim_nip": nim_nip,
                         "rfid_uid": target_rfid,
                         "status": "TIDAK COCOK",
                         "reason": "RFID_MISMATCH"
                     }
+                # Lakukan Auto-Bind RFID ke baris kendaraan ini
+                self.bind_rfid_to_vehicle(matched_row.get("id"), plate_canonical, target_rfid)
+                return {
+                    "verified": True,
+                    "matched": True,
+                    "auto_bound": True,
+                    "plate": plate_canonical,
+                    "owner_name": owner,
+                    "category": category,
+                    "nim_nip": nim_nip,
+                    "rfid_uid": target_rfid,
+                    "status": "TERDAFTAR",
+                    "reason": "AUTO_BOUND"
+                }
 
-        # 2. Cek di Fallback Data (Mode Demo / Offline)
-        for item in self.fallback_vehicles:
-            if normalize_plate(item.get("plate", "")) == target_plate:
-                db_rfid = str(item.get("rfid_uid", "")).strip().upper()
-                if db_rfid and db_rfid == target_rfid:
-                    return {
-                        "verified": True,
-                        "matched": True,
-                        "plate": item.get("plate", plate_text),
-                        "owner_name": item.get("owner_name", "Civitas Untirta"),
-                        "category": item.get("category", "STUDENT"),
-                        "nim_nip": item.get("nim_nip", "-") or "-",
-                        "rfid_uid": db_rfid,
-                        "status": "TERDAFTAR",
-                        "reason": "MATCH"
-                    }
-                else:
-                    return {
-                        "verified": False,
-                        "matched": False,
-                        "plate": item.get("plate", plate_text),
-                        "owner_name": item.get("owner_name", "Civitas Untirta"),
-                        "category": item.get("category", "STUDENT"),
-                        "nim_nip": item.get("nim_nip", "-") or "-",
-                        "rfid_uid": target_rfid,
-                        "status": "TIDAK COCOK",
-                        "reason": "RFID_MISMATCH"
-                    }
+            # KASUS B: Kendaraan sudah memiliki RFID terdaftar -> Cocokkan!
+            if db_rfid == target_rfid:
+                return {
+                    "verified": True,
+                    "matched": True,
+                    "auto_bound": False,
+                    "plate": plate_canonical,
+                    "owner_name": owner,
+                    "category": category,
+                    "nim_nip": nim_nip,
+                    "rfid_uid": db_rfid,
+                    "status": "TERDAFTAR",
+                    "reason": "MATCH"
+                }
+            else:
+                return {
+                    "verified": False,
+                    "matched": False,
+                    "auto_bound": False,
+                    "plate": plate_canonical,
+                    "owner_name": owner,
+                    "category": category,
+                    "nim_nip": nim_nip,
+                    "rfid_uid": target_rfid,
+                    "status": "TIDAK COCOK",
+                    "reason": "RFID_MISMATCH"
+                }
 
-        # Tidak ditemukan
+        # KASUS C: Plat belum terdaftar sama sekali di sistem
         return {
             "verified": False,
             "matched": False,
+            "auto_bound": False,
             "plate": plate_text.strip().upper(),
             "owner_name": "Tamu / Belum Terdaftar",
             "category": "ACADEMIC COMMUNITY",
@@ -335,16 +408,9 @@ class SupabaseLogger:
     def log_vehicle(self, plate_text: str, confidence: float = 100.0, region: str = "id", direction: str = None, method: str = "ALPR", custom_info: dict = None) -> dict:
         """
         Mencocokkan plat/RFID ke registered_vehicles dan mengirimkan data LENGKAP ke vehicle_logs.
-        Data yang dikirimkan:
-        - plate       : Plat terdeteksi / UID kartu
-        - name        : Nama pemilik terdaftar (atau Tamu)
-        - category    : STUDENT / LECTURER / ACADEMIC COMMUNITY
-        - nim_nip     : NIM / NIP civitas
-        - status      : TERDAFTAR / TIDAK TERDAFTAR
-        - method      : ALPR / RFID / MANUAL
-        - direction   : IN / OUT
-        - confidence  : Akurasi OCR (%)
-        - region      : Kode wilayah
+        Jika kendaraan berstatus TIDAK TERDAFTAR dan sempat men-tap kartu RFID baru di gerbang,
+        UID RFID disimpan pada field nim_nip dengan format 'RFID:<UID>' agar fitur Quick-Register
+        di Web Dashboard Satpam dapat langsung mengisi otomatis Plat + RFID UID tersebut!
         """
         if direction is None:
             direction = getattr(config, 'GATE_DIRECTION', 'OUT')
@@ -353,11 +419,16 @@ class SupabaseLogger:
         # 1. COCOKKAN KE REGISTERED VEHICLES (Jika tidak diberikan custom_info)
         info = custom_info or self.lookup_vehicle(plate_text)
 
+        nim_val = info.get("nim_nip", "-") or "-"
+        tapped_rfid = self._clean_rfid(info.get("rfid_uid"))
+        if info.get("status") == "TIDAK TERDAFTAR" and nim_val == "-" and tapped_rfid and tapped_rfid != "MOCK_RFID_TAP":
+            nim_val = f"RFID:{tapped_rfid}"
+
         payload = {
             "plate": info["plate"],
             "name": info["owner_name"],
             "category": info["category"],
-            "nim_nip": info["nim_nip"],
+            "nim_nip": nim_val,
             "status": info["status"],
             "method": method,
             "direction": direction,
@@ -365,8 +436,9 @@ class SupabaseLogger:
         }
 
         # Tampilkan hasil pencocokan di console RPi
-        if info["matched"]:
-            print(f"  [MATCHED OK] Terdaftar: {info['plate']} | {info['owner_name']} ({info['category']} - NIM/NIP: {info['nim_nip']}) [{method}]")
+        if info.get("matched"):
+            bind_tag = " [AUTO-BIND BARU]" if info.get("auto_bound") else ""
+            print(f"  [MATCHED OK]{bind_tag} Terdaftar: {info['plate']} | {info['owner_name']} ({info['category']} - NIM/NIP: {info['nim_nip']}) [{method}]")
         else:
             print(f"  [UNREGISTERED] Tidak Terdaftar: {info['plate']} | Status: {info['status']} [{method}]")
 
