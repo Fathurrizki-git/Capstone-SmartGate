@@ -4,24 +4,29 @@ Mendukung pendaftaran plat nomor kendaraan dan UID kartu RFID 13.56 MHz.
 
 Penggunaan:
     # Melihat daftar kendaraan & kartu civitas yang terdaftar:
-    python manage_vehicles.py --list
+    python scripts/manage_vehicles.py --list
 
     # Menambah kendaraan secara interaktif:
-    python manage_vehicles.py --add
+    python scripts/manage_vehicles.py --add
 
     # Menambah kendaraan via argumen:
-    python manage_vehicles.py --add --plate "A 1234 BC" --name "Ahmad Zaki" --category "STUDENT" --nim "3332210001" --rfid "0001234567"
+    python scripts/manage_vehicles.py --add --plate "A 1234 BC" --name "Ahmad Zaki" --category "STUDENT" --nim "3332210001" --rfid "0001234567"
 
     # Menghapus kendaraan terdaftar:
-    python manage_vehicles.py --delete "A 1234 BC"
+    python scripts/manage_vehicles.py --delete "A 1234 BC"
 
     # Melihat riwayat log deteksi gerbang terbaru:
-    python manage_vehicles.py --logs
+    python scripts/manage_vehicles.py --logs
 """
 
+import os
 import sys
 import argparse
 import requests
+# Folder utama proyek ke path agar config & smart_gate dapat di-import
+# (bisa dijalankan: python scripts/<nama>.py  atau  python -m scripts.<nama>)
+sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+
 import config
 
 

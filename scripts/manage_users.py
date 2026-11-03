@@ -4,21 +4,26 @@ Dapat digunakan untuk menambah, melihat, dan menghapus user tanpa menyentuh kode
 
 Penggunaan:
     # Melihat daftar user:
-    python manage_users.py --list
+    python scripts/manage_users.py --list
 
     # Menambah user secara interaktif:
-    python manage_users.py --add
+    python scripts/manage_users.py --add
 
     # Menambah user via argumen:
-    python manage_users.py --add --name "Ahmad" --email "ahmad@untirta.ac.id" --password "rahasia123" --role "Petugas Gerbang"
+    python scripts/manage_users.py --add --name "Ahmad" --email "ahmad@untirta.ac.id" --password "rahasia123" --role "Petugas Gerbang"
 
     # Menghapus user berdasarkan email:
-    python manage_users.py --delete ahmad@untirta.ac.id
+    python scripts/manage_users.py --delete ahmad@untirta.ac.id
 """
 
+import os
 import sys
 import argparse
 import requests
+# Folder utama proyek ke path agar config & smart_gate dapat di-import
+# (bisa dijalankan: python scripts/<nama>.py  atau  python -m scripts.<nama>)
+sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+
 import config
 
 

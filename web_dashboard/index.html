@@ -951,7 +951,7 @@ body.modal-open{overflow:hidden}
       <button class="icon-btn" id="cam-cfg-close" aria-label="Tutup" data-icon="x"></button>
     </div>
     <p style="font-size:13px;color:var(--gray-400);line-height:1.5;margin-bottom:14px">
-      Masukkan URL HTTPS dari Cloudflare Tunnel (misal: <code>https://xxxx.trycloudflare.com/video_feed</code>) agar siaran kamera Raspberry Pi / Laptop tampil langsung di Netlify tanpa terblokir keamanan browser.
+      Masukkan URL HTTPS dari Cloudflare Tunnel (misal: <code>https://xxxx.trycloudflare.com/video_feed</code>) agar siaran kamera Mini PC / Laptop tampil langsung di Netlify tanpa terblokir keamanan browser.
     </p>
     <div style="margin-bottom:14px">
       <label style="display:block;font-size:12px;font-weight:600;margin-bottom:6px">URL Stream Kamera (HTTPS / Localhost):</label>
@@ -1310,18 +1310,58 @@ body.modal-open{overflow:hidden}
   function unreadCount() { return state.alerts.filter(function (a) { return !a.read; }).length; }
 
   /* =========================================================
-     AUTH (Supabase Cloud Database + Offline Fallback)
+     SUMBER DATA
+     - Dibuka dari server Mini PC (lokal :5050 / tunnel): API lokal -> PostgreSQL Mini PC,
+       tetap berfungsi tanpa internet.
+     - Dibuka dari Netlify: langsung ke Supabase Cloud.
+     ========================================================= */
+  var USE_LOCAL_API = location.port === '5050' || location.hostname.includes('trycloudflare.com');
+
+  async function localApi(path, body) {
+    var u = currentUser();
+    var headers = { 'Content-Type': 'application/json' };
+    if (u && u.token) headers['Authorization'] = 'Bearer ' + u.token;
+    var res = await fetch(path, {
+      method: body === undefined ? 'GET' : 'POST',
+      headers: headers,
+      body: body === undefined ? undefined : JSON.stringify(body),
+      cache: 'no-store'
+    });
+    var data = null;
+    try { data = await res.json(); } catch (e) { }
+    if (res.status === 401 && path !== '/api/login') {
+      setLive(false);
+      clearAuth();
+      navigate('login');
+      toast('Sesi login berakhir, silakan login kembali.', 'error');
+    }
+    if (!res.ok) throw new Error((data && data.error) || ('HTTP ' + res.status));
+    return data;
+  }
+
+  /* =========================================================
+     AUTH (API Lokal Mini PC / Supabase Cloud Database)
      ========================================================= */
   var AUTH_KEY = 'spg_auth';
   async function verifyUser(email, pass) {
-    // Autentikasi 100% langsung ke tabel users di Supabase Cloud Database
+    var cleanEmail = (email || '').trim().toLowerCase();
+    if (USE_LOCAL_API) {
+      try {
+        var r = await localApi('/api/login', { email: cleanEmail, password: pass });
+        return { email: r.user.email, name: r.user.name, role: r.user.role, token: r.token };
+      } catch (err) {
+        if (/password salah/i.test(err.message)) return null;
+        throw err;
+      }
+    }
+
+    // Dashboard Netlify: autentikasi langsung ke tabel users di Supabase Cloud Database
     var cfg = window.SUPABASE_CONFIG || {};
     if (!cfg.url || !cfg.anonKey || cfg.url.includes('YOUR_PROJECT_ID')) {
       throw new Error('Konfigurasi database Supabase belum terhubung.');
     }
 
     var base = cfg.url.replace(/\/+$/, '');
-    var cleanEmail = (email || '').trim().toLowerCase();
     var res = await fetch(base + '/rest/v1/users?email=ilike.' + encodeURIComponent(cleanEmail) + '&password=eq.' + encodeURIComponent(pass) + '&select=*', {
       headers: {
         'apikey': cfg.anonKey,
@@ -2155,19 +2195,25 @@ body.modal-open{overflow:hidden}
      CAMERA (Live Python Stream Server, Cloudflare Tunnel & Webcam)
      ========================================================= */
   var camStream = null, camStarting = false, isPythonStreamActive = false;
-  var streamActive = false, streamNextTimer = null, streamCheckTimer = null;
+  var streamActive = false, streamNextTimer = null, streamCheckTimer = null, currentStreamBase = null;
 
   function getCamStreamURL() {
+    // Dashboard dibuka langsung dari server Python (lokal / tunnel): selalu pakai server yang sama.
+    // URL Cloudflare tersimpan diabaikan agar dashboard lokal tidak memutar video lewat internet.
+    if (location.port === '5050' || location.hostname.includes('trycloudflare.com')) {
+      return location.origin + '/video_feed';
+    }
     var saved = localStorage.getItem('spg_cam_url');
     if (saved && saved.trim()) return saved.trim();
     if (location.protocol === 'https:' && location.hostname.includes('netlify.app')) {
       return ''; // Pada Netlify HTTPS, tunggu URL Cloudflare HTTPS yang disetel pengguna
     }
-    if (location.port === '5050' || location.hostname.includes('trycloudflare.com')) {
-      return location.origin + '/video_feed';
-    }
     var host = location.hostname || 'localhost';
     return 'http://' + host + ':5050/video_feed';
+  }
+
+  function isTunnelBase(base) {
+    return base.includes('trycloudflare.com') || base.startsWith('https://');
   }
 
   function setCamIndicator(isLive) {
@@ -2184,16 +2230,73 @@ body.modal-open{overflow:hidden}
 
   function stopSnapshotLoop() {
     streamActive = false;
+    currentStreamBase = null;
     if (streamNextTimer) {
       clearTimeout(streamNextTimer);
       streamNextTimer = null;
     }
+    if (streamCheckTimer) {
+      clearInterval(streamCheckTimer);
+      streamCheckTimer = null;
+    }
+    var img = $('#cam-stream');
+    if (img) { img.onload = null; img.onerror = null; }
     setCamIndicator(false);
+  }
+
+  function showStreamLive(label) {
+    var img = $('#cam-stream');
+    if (img) img.hidden = false;
+    if ($('#cam-video')) $('#cam-video').hidden = true;
+    if ($('#cam-start')) $('#cam-start').disabled = true;
+    if ($('#cam-stop')) $('#cam-stop').disabled = false;
+    setCamIndicator(true);
+    if ($('#cam-status')) {
+      $('#cam-status').innerHTML = '<span class="live-dot" style="background:var(--green)"></span>' + label;
+    }
+  }
+
+  // Jaringan lokal: MJPEG push (/video_feed). Server mengirim setiap frame begitu tersedia
+  // lewat satu koneksi terbuka, tanpa overhead 1 request HTTP per frame seperti mode snapshot.
+  function startMjpegStream(baseUrl) {
+    stopSnapshotLoop();
+    var img = $('#cam-stream');
+    if (!img) return;
+    streamActive = true;
+    currentStreamBase = baseUrl;
+
+    var started = false;
+    img.onload = function () {
+      if (started) return; // MJPEG memicu onload pada frame pertama
+      started = true;
+      showStreamLive('Live Kamera ALPR (Lokal Real-time MJPEG)');
+    };
+    img.onerror = function () {
+      // MJPEG gagal (misal diblokir proxy): turun ke mode snapshot
+      if (streamActive && currentStreamBase === baseUrl) startSnapshotLoop(baseUrl);
+    };
+    img.src = baseUrl + '/video_feed?t=' + Date.now();
+
+    // Watchdog: jika server Python berhenti, sambungkan ulang setelah kembali aktif
+    streamCheckTimer = setInterval(function () {
+      if (state.route !== 'security') return;
+      fetch(baseUrl + '/status?t=' + Date.now(), { cache: 'no-store' }).catch(function () {
+        stopSnapshotLoop();
+        isPythonStreamActive = false;
+        checkPythonStream();
+      });
+    }, 5000);
+  }
+
+  function startLiveStream(baseUrl) {
+    if (isTunnelBase(baseUrl)) startSnapshotLoop(baseUrl); // Cloudflare mem-buffer MJPEG -> pakai snapshot
+    else startMjpegStream(baseUrl);
   }
 
   function startSnapshotLoop(baseUrl) {
     stopSnapshotLoop();
     streamActive = true;
+    currentStreamBase = baseUrl;
 
     var img = $('#cam-stream');
     if (!img) return;
@@ -2283,7 +2386,10 @@ body.modal-open{overflow:hidden}
     }
 
     var cleanBase = feedUrl.replace(/\/video_feed\/?$/i, '').replace(/\/snapshot\/?$/i, '').replace(/\/+$/, '');
-    var isTunnel = cleanBase.includes('trycloudflare.com') || cleanBase.startsWith('https://');
+    var isTunnel = isTunnelBase(cleanBase);
+
+    // Stream ke server yang sama sudah berjalan: jangan disambung ulang (renderSecurity dipanggil berkali-kali)
+    if (streamActive && currentStreamBase === cleanBase) return;
 
     // Coba cek endpoint /status via fetch
     try {
@@ -2300,7 +2406,7 @@ body.modal-open{overflow:hidden}
         if ($('#cam-status')) {
           $('#cam-status').innerHTML = '<span class="live-dot" style="background:var(--green)"></span>' + label;
         }
-        startSnapshotLoop(cleanBase);
+        startLiveStream(cleanBase);
         return;
       }
     } catch (err) {
@@ -2311,7 +2417,7 @@ body.modal-open{overflow:hidden}
     var probe = new Image();
     probe.onload = function () {
       isPythonStreamActive = true;
-      startSnapshotLoop(cleanBase);
+      startLiveStream(cleanBase);
     };
     probe.onerror = function () {
       stopSnapshotLoop();
@@ -2503,19 +2609,24 @@ body.modal-open{overflow:hidden}
      LIVE SUPABASE LOGS & REAL-TIME SYNC
      ========================================================= */
   var liveTimer = null;
-  async function loadSupabaseLogs() {
+  // Ambil baris tabel dari API lokal (Mini PC) atau Supabase (Netlify). Return null jika gagal.
+  async function fetchRows(localPath, supabasePath, localKey) {
+    if (USE_LOCAL_API) return (await localApi(localPath))[localKey];
     var cfg = window.SUPABASE_CONFIG || {};
-    if (!cfg.url || !cfg.anonKey || cfg.url.includes('YOUR_PROJECT_ID')) return false;
+    if (!cfg.url || !cfg.anonKey || cfg.url.includes('YOUR_PROJECT_ID')) return null;
+    var res = await fetch(cfg.url.replace(/\/+$/, '') + '/rest/v1/' + supabasePath, {
+      headers: {
+        'apikey': cfg.anonKey,
+        'Authorization': 'Bearer ' + cfg.anonKey
+      }
+    });
+    return res.ok ? await res.json() : null;
+  }
+
+  async function loadLogs() {
     try {
-      var base = cfg.url.replace(/\/+$/, '');
-      var res = await fetch(base + '/rest/v1/vehicle_logs?select=*&order=created_at.desc&limit=150', {
-        headers: {
-          'apikey': cfg.anonKey,
-          'Authorization': 'Bearer ' + cfg.anonKey
-        }
-      });
-      if (res.ok) {
-        var rows = await res.json();
+      var rows = await fetchRows('/api/logs?limit=150', 'vehicle_logs?select=*&order=created_at.desc&limit=150', 'logs');
+      if (rows) {
         var prevFirstId = state.logs && state.logs[0] ? state.logs[0].id : null;
         state.logs = (rows || []).map(function (r) {
           var rawNim = r.nim_nip || '-';
@@ -2551,25 +2662,16 @@ body.modal-open{overflow:hidden}
         return true;
       }
     } catch (err) {
-      console.warn('Gagal memuat log dari Supabase:', err);
+      console.warn('Gagal memuat log kendaraan:', err);
     }
     return false;
   }
 
-  async function loadSupabaseVehicles() {
-    var cfg = window.SUPABASE_CONFIG || {};
-    if (!cfg.url || !cfg.anonKey || cfg.url.includes('YOUR_PROJECT_ID')) return false;
+  async function loadVehicles() {
     try {
-      var base = cfg.url.replace(/\/+$/, '');
-      var res = await fetch(base + '/rest/v1/registered_vehicles?select=*&order=id.desc&limit=500', {
-        headers: {
-          'apikey': cfg.anonKey,
-          'Authorization': 'Bearer ' + cfg.anonKey
-        }
-      });
-      if (res.ok) {
-        var rows = await res.json();
-        state.vehicles = rows || [];
+      var rows = await fetchRows('/api/vehicles', 'registered_vehicles?select=*&order=id.desc&limit=500', 'vehicles');
+      if (rows) {
+        state.vehicles = rows;
         var rvBadge = $('#rv-badge');
         if (rvBadge) {
           rvBadge.textContent = state.vehicles.length;
@@ -2579,15 +2681,15 @@ body.modal-open{overflow:hidden}
         return true;
       }
     } catch (err) {
-      console.warn('Gagal memuat daftar kendaraan dari Supabase:', err);
+      console.warn('Gagal memuat daftar kendaraan:', err);
     }
     return false;
   }
 
   async function liveTick() {
     if (!currentUser() || state.route === 'login') return;
-    await loadSupabaseLogs();
-    await loadSupabaseVehicles();
+    await loadLogs();
+    await loadVehicles();
   }
   function setLive(on) {
     clearInterval(liveTimer); liveTimer = null;
@@ -2653,6 +2755,29 @@ body.modal-open{overflow:hidden}
     updateModalScrollLock();
   }
 
+  // Kirim perintah buka palang. Log dicatat Mini PC saat palang benar-benar terbuka (tidak ditulis dashboard).
+  async function sendGateOpen(reason, plate) {
+    if (USE_LOCAL_API) return localApi('/api/gate/open', { reason: reason, plate: plate }); // Langsung, tanpa internet
+    var cfg = window.SUPABASE_CONFIG || {};
+    if (!cfg.url || !cfg.anonKey || cfg.url.includes('YOUR_PROJECT_ID')) throw new Error('Konfigurasi Supabase belum disetel.');
+    var user = currentUser() || { name: 'Admin' };
+    var res = await fetch(cfg.url.replace(/\/+$/, '') + '/rest/v1/gate_commands', {
+      method: 'POST',
+      headers: {
+        'apikey': cfg.anonKey,
+        'Authorization': 'Bearer ' + cfg.anonKey,
+        'Content-Type': 'application/json'
+      },
+      body: JSON.stringify({
+        command: 'OPEN_GATE',
+        status: 'PENDING',
+        operator_name: user.name,
+        reason: reason + (plate ? (' [' + plate + ']') : '')
+      })
+    });
+    if (!res.ok) throw new Error('HTTP ' + res.status);
+  }
+
   async function executeRemoteGateOpen() {
     var user = currentUser() || { name: 'Admin', role: 'Petugas' };
     closeConfirmGateModal();
@@ -2667,46 +2792,11 @@ body.modal-open{overflow:hidden}
       : 'ACADEMIC COMMUNITY';
     var targetNim = (matchedVehicle && matchedVehicle.nim_nip) ? matchedVehicle.nim_nip : '-';
 
-    var cfg = window.SUPABASE_CONFIG || {};
-    if (cfg.url && cfg.anonKey && !cfg.url.includes('YOUR_PROJECT_ID')) {
-      try {
-        var base = cfg.url.replace(/\/+$/, '');
-        await fetch(base + '/rest/v1/gate_commands', {
-          method: 'POST',
-          headers: {
-            'apikey': cfg.anonKey,
-            'Authorization': 'Bearer ' + cfg.anonKey,
-            'Content-Type': 'application/json'
-          },
-          body: JSON.stringify({
-            command: 'OPEN_GATE',
-            status: 'PENDING',
-            operator_name: user.name,
-            reason: pendingGateReason + (targetPlate ? (' [' + targetPlate + ']') : '')
-          })
-        });
-
-        await fetch(base + '/rest/v1/vehicle_logs', {
-          method: 'POST',
-          headers: {
-            'apikey': cfg.anonKey,
-            'Authorization': 'Bearer ' + cfg.anonKey,
-            'Content-Type': 'application/json'
-          },
-          body: JSON.stringify({
-            plate: targetPlate,
-            name: targetName,
-            category: targetCategory,
-            nim_nip: targetNim,
-            status: 'TERDAFTAR',
-            method: 'WEB_MANUAL',
-            direction: 'OUT',
-            confidence: 100.00
-          })
-        });
-      } catch (err) {
-        console.warn('Gagal mengirim perintah buka gerbang ke Supabase:', err);
-      }
+    try {
+      await sendGateOpen(pendingGateReason, targetPlate);
+    } catch (err) {
+      toast('Gagal mengirim perintah buka gerbang: ' + (err.message || err), 'error');
+      return;
     }
 
     var newLog = {
@@ -2739,7 +2829,7 @@ body.modal-open{overflow:hidden}
 
     updateBadges();
     renderCurrent();
-    loadSupabaseLogs();
+    loadLogs();
 
     toast('✅ Konfirmasi diterima! Perintah buka palang berhasil dikirim ke Gerbang Keluar.', 'success');
   }
@@ -2834,11 +2924,13 @@ body.modal-open{overflow:hidden}
       return;
     }
 
-    var cfg = window.SUPABASE_CONFIG || {};
-    if (!cfg.url || !cfg.anonKey || cfg.url.includes('YOUR_PROJECT_ID')) {
-      toast('Konfigurasi Supabase belum disetel.', 'error');
-      return;
-    }
+    var payload = {
+      plate: plate,
+      owner: owner,
+      category: category,
+      nim_nip: nim,
+      rfid_uid: rfid
+    };
 
     var btn = $('#qreg-submit-btn');
     var origText = btn.textContent;
@@ -2846,99 +2938,15 @@ body.modal-open{overflow:hidden}
     btn.textContent = 'Menyimpan ke Database...';
 
     try {
-      var base = cfg.url.replace(/\/+$/, '');
-      var headers = {
-        'apikey': cfg.anonKey,
-        'Authorization': 'Bearer ' + cfg.anonKey,
-        'Content-Type': 'application/json',
-        'Prefer': 'return=representation'
-      };
-
-      // Cek apakah RFID sudah dipakai plat lain
-      if (rfid) {
-        var rfidCheckRes = await fetch(base + '/rest/v1/registered_vehicles?rfid_uid=eq.' + encodeURIComponent(rfid) + '&select=id,plate,owner', { headers: headers });
-        if (rfidCheckRes.ok) {
-          var rfidRows = await rfidCheckRes.json();
-          var conflict = (rfidRows || []).find(function (r) {
-            return r.plate !== plate && String(r.id) !== String(editId);
-          });
-          if (conflict) {
-            toast('Kartu RFID ' + rfid + ' sudah terdaftar pada plat ' + conflict.plate + ' (' + conflict.owner + ').', 'error');
-            btn.disabled = false;
-            btn.textContent = origText;
-            return;
-          }
-        }
-      }
-
-      // Cek apakah plat nomor sudah ada (jika bukan mode editId)
-      var targetId = editId;
-      if (!targetId) {
-        var plateCheckRes = await fetch(base + '/rest/v1/registered_vehicles?plate=eq.' + encodeURIComponent(plate) + '&select=id', { headers: headers });
-        if (plateCheckRes.ok) {
-          var plateRows = await plateCheckRes.json();
-          if (plateRows && plateRows.length > 0) {
-            targetId = plateRows[0].id;
-          }
-        }
-      }
-
-      var payload = {
-        plate: plate,
-        owner: owner,
-        category: category,
-        nim_nip: nim,
-        rfid_uid: rfid
-      };
-
-      var saveRes;
-      if (targetId) {
-        saveRes = await fetch(base + '/rest/v1/registered_vehicles?id=eq.' + encodeURIComponent(targetId), {
-          method: 'PATCH',
-          headers: headers,
-          body: JSON.stringify(payload)
-        });
+      if (USE_LOCAL_API) {
+        // Disimpan di database lokal Mini PC, dikirim ke Supabase oleh sinkronisasi background
+        await localApi('/api/vehicles', Object.assign({ id: editId || null }, payload));
       } else {
-        saveRes = await fetch(base + '/rest/v1/registered_vehicles', {
-          method: 'POST',
-          headers: headers,
-          body: JSON.stringify(payload)
-        });
+        await saveVehicleSupabase(payload, editId);
       }
-
-      if (!saveRes.ok) {
-        var errTxt = await saveRes.text();
-        throw new Error('Gagal menyimpan (' + saveRes.status + '): ' + errTxt);
-      }
-
-      var user = currentUser() || { name: 'Admin', role: 'Petugas' };
 
       if (shouldOpenGate) {
-        await fetch(base + '/rest/v1/gate_commands', {
-          method: 'POST',
-          headers: headers,
-          body: JSON.stringify({
-            command: 'OPEN_GATE',
-            status: 'PENDING',
-            operator_name: user.name,
-            reason: 'Quick-Register On-The-Spot [' + plate + ']'
-          })
-        });
-
-        await fetch(base + '/rest/v1/vehicle_logs', {
-          method: 'POST',
-          headers: headers,
-          body: JSON.stringify({
-            plate: plate,
-            name: owner,
-            category: category,
-            nim_nip: nim,
-            status: 'TERDAFTAR',
-            method: rfid ? 'DUAL_QUICK_REG' : 'QUICK_REG_WEB',
-            direction: 'OUT',
-            confidence: 100.00
-          })
-        });
+        await sendGateOpen('Quick-Register On-The-Spot', plate);
 
         var st = $('#gate-current-status');
         if (st) {
@@ -2954,8 +2962,8 @@ body.modal-open{overflow:hidden}
       }
 
       closeQuickRegModal();
-      await loadSupabaseVehicles();
-      await loadSupabaseLogs();
+      await loadVehicles();
+      await loadLogs();
 
       toast(
         shouldOpenGate
@@ -2971,26 +2979,65 @@ body.modal-open{overflow:hidden}
     }
   }
 
+  // Dashboard Netlify: simpan kendaraan langsung ke Supabase (cek bentrok RFID & plat dulu)
+  async function saveVehicleSupabase(payload, editId) {
+    var cfg = window.SUPABASE_CONFIG || {};
+    if (!cfg.url || !cfg.anonKey || cfg.url.includes('YOUR_PROJECT_ID')) throw new Error('Konfigurasi Supabase belum disetel.');
+    var base = cfg.url.replace(/\/+$/, '');
+    var headers = {
+      'apikey': cfg.anonKey,
+      'Authorization': 'Bearer ' + cfg.anonKey,
+      'Content-Type': 'application/json',
+      'Prefer': 'return=representation'
+    };
+
+    // Cek apakah RFID sudah dipakai plat lain
+    if (payload.rfid_uid) {
+      var rfidCheckRes = await fetch(base + '/rest/v1/registered_vehicles?rfid_uid=eq.' + encodeURIComponent(payload.rfid_uid) + '&select=id,plate,owner', { headers: headers });
+      if (rfidCheckRes.ok) {
+        var conflict = ((await rfidCheckRes.json()) || []).find(function (r) {
+          return r.plate !== payload.plate && String(r.id) !== String(editId);
+        });
+        if (conflict) throw new Error('Kartu RFID ' + payload.rfid_uid + ' sudah terdaftar pada plat ' + conflict.plate + ' (' + conflict.owner + ').');
+      }
+    }
+
+    // Cek apakah plat nomor sudah ada (jika bukan mode edit)
+    var targetId = editId;
+    if (!targetId) {
+      var plateCheckRes = await fetch(base + '/rest/v1/registered_vehicles?plate=eq.' + encodeURIComponent(payload.plate) + '&select=id', { headers: headers });
+      if (plateCheckRes.ok) {
+        var plateRows = await plateCheckRes.json();
+        if (plateRows && plateRows.length > 0) targetId = plateRows[0].id;
+      }
+    }
+
+    var saveRes = targetId
+      ? await fetch(base + '/rest/v1/registered_vehicles?id=eq.' + encodeURIComponent(targetId), { method: 'PATCH', headers: headers, body: JSON.stringify(payload) })
+      : await fetch(base + '/rest/v1/registered_vehicles', { method: 'POST', headers: headers, body: JSON.stringify(payload) });
+    if (!saveRes.ok) throw new Error('Gagal menyimpan (' + saveRes.status + '): ' + (await saveRes.text()));
+  }
+
   async function deleteRegisteredVehicle(id, plate) {
     if (!id) return;
     if (!window.confirm('Hapus kendaraan ' + plate + ' dari daftar kendaraan terdaftar?')) return;
-    var cfg = window.SUPABASE_CONFIG || {};
-    if (!cfg.url || !cfg.anonKey) return;
     try {
-      var base = cfg.url.replace(/\/+$/, '');
-      var res = await fetch(base + '/rest/v1/registered_vehicles?id=eq.' + encodeURIComponent(id), {
-        method: 'DELETE',
-        headers: {
-          'apikey': cfg.anonKey,
-          'Authorization': 'Bearer ' + cfg.anonKey
-        }
-      });
-      if (res.ok) {
-        toast('Kendaraan ' + plate + ' berhasil dihapus.', 'info');
-        await loadSupabaseVehicles();
+      if (USE_LOCAL_API) {
+        await localApi('/api/vehicles/delete', { id: id });
       } else {
-        toast('Gagal menghapus kendaraan.', 'error');
+        var cfg = window.SUPABASE_CONFIG || {};
+        if (!cfg.url || !cfg.anonKey) return;
+        var res = await fetch(cfg.url.replace(/\/+$/, '') + '/rest/v1/registered_vehicles?id=eq.' + encodeURIComponent(id), {
+          method: 'DELETE',
+          headers: {
+            'apikey': cfg.anonKey,
+            'Authorization': 'Bearer ' + cfg.anonKey
+          }
+        });
+        if (!res.ok) throw new Error('HTTP ' + res.status);
       }
+      toast('Kendaraan ' + plate + ' berhasil dihapus.', 'info');
+      await loadVehicles();
     } catch (err) {
       toast('Gagal menghapus: ' + (err.message || err), 'error');
     }
@@ -3047,13 +3094,13 @@ body.modal-open{overflow:hidden}
           return show('Email atau password salah.');
         }
         err.hidden = true;
-        setAuth({ email: user.email, name: user.name, role: user.role || 'Admin' }, $('#remember').checked);
+        setAuth({ email: user.email, name: user.name, role: user.role || 'Admin', token: user.token }, $('#remember').checked);
         $('#login-pass').value = '';
         var live = true;
         try { live = localStorage.getItem('spg_live') !== '0'; } catch (e) { }
         setLive(live);
-        loadSupabaseLogs();
-        loadSupabaseVehicles();
+        loadLogs();
+        loadVehicles();
         navigate('dashboard');
         toast('Selamat datang, ' + user.name + ' (' + (user.role || 'Admin') + ')!', 'success');
       } catch (ex) {
@@ -3074,6 +3121,7 @@ body.modal-open{overflow:hidden}
     // Logout
     $('#logout-btn').addEventListener('click', function () {
       setLive(false);
+      if (USE_LOCAL_API) localApi('/api/logout', {}).catch(function () { });
       clearAuth();
       var t = $('#toasts'); if (t) t.innerHTML = '';
       navigate('login');
@@ -3321,8 +3369,8 @@ body.modal-open{overflow:hidden}
     }
     if ($('#rv-refresh')) {
       $('#rv-refresh').addEventListener('click', async function () {
-        await loadSupabaseVehicles();
-        toast('Data kendaraan terdaftar diperbarui dari Supabase.', 'success');
+        await loadVehicles();
+        toast('Data kendaraan terdaftar diperbarui.', 'success');
       });
     }
     if ($('#rv-body')) {
@@ -3471,8 +3519,8 @@ body.modal-open{overflow:hidden}
       var live = true;
       try { live = localStorage.getItem('spg_live') !== '0'; } catch (e) { }
       setLive(live);
-      loadSupabaseLogs();
-      loadSupabaseVehicles();
+      loadLogs();
+      loadVehicles();
     } else {
       setLive(false);
     }

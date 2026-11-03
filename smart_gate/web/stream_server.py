@@ -17,8 +17,11 @@ from socketserver import ThreadingMixIn
 from http.server import HTTPServer, BaseHTTPRequestHandler
 import cv2
 import numpy as np
+from smart_gate import PROJECT_ROOT
+from smart_gate.web import local_api
 
-WEB_DASHBOARD_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), "web_dashboard")
+WEB_DASHBOARD_DIR = os.path.join(PROJECT_ROOT, "web_dashboard")
+CLOUDFLARED_EXE = os.path.join(PROJECT_ROOT, "cloudflared.exe")
 
 
 def get_local_ip():
@@ -37,32 +40,74 @@ def get_local_ip():
 class StreamHub:
     """Hub penyimpanan frame terbaru dalam bentuk JPEG bytes untuk disiarkan ke client."""
     def __init__(self):
-        self.lock = threading.Lock()
+        self.cond = threading.Condition()
         self.latest_jpeg = None
         self.last_update = 0.0
+        self.frame_id = 0
         self._placeholder_jpeg = None
+        self.width = 640
+        self.quality = 60
+        self.min_interval = 0.0
+        self._raw_cond = threading.Condition()
+        self._raw_frame = None
+        self._encoder_thread = None
+
+    def configure(self, width=640, quality=60, max_fps=0):
+        """Atur lebar, kualitas JPEG, dan batas fps stream (0 = ikuti fps kamera)."""
+        self.width = int(width)
+        self.quality = int(quality)
+        self.min_interval = 1.0 / max_fps if max_fps else 0.0
 
     def update_frame(self, frame_bgr):
+        """
+        Terima frame dari thread kamera tanpa memprosesnya (non-blocking).
+        Resize + encode JPEG dikerjakan thread encoder agar pembacaan kamera tidak melambat.
+        """
         if frame_bgr is None:
             return
-        try:
-            # Optimasi Latensi: Resize ke 640px & JPEG Quality 60 agar ukuran frame ~10-12KB
-            h, w = frame_bgr.shape[:2]
-            target_w = 640
-            target_h = int(h * (target_w / w))
-            stream_frame = cv2.resize(frame_bgr, (target_w, target_h), interpolation=cv2.INTER_AREA)
+        with self._raw_cond:
+            self._raw_frame = frame_bgr
+            if self._encoder_thread is None:
+                self._encoder_thread = threading.Thread(target=self._encode_loop, daemon=True)
+                self._encoder_thread.start()
+            self._raw_cond.notify()
 
-            ret, buf = cv2.imencode(".jpg", stream_frame, [cv2.IMWRITE_JPEG_QUALITY, 60])
-            if ret:
-                with self.lock:
-                    self.latest_jpeg = buf.tobytes()
-                    self.last_update = time.time()
-        except Exception:
-            pass
+    def _encode_loop(self):
+        while True:
+            with self._raw_cond:
+                self._raw_cond.wait_for(lambda: self._raw_frame is not None)
+                frame_bgr, self._raw_frame = self._raw_frame, None  # Selalu ambil frame paling baru
+
+            wait = self.min_interval - (time.time() - self.last_update)
+            if wait > 0:
+                time.sleep(wait)
+            try:
+                # Optimasi Latensi: perkecil frame (misal 1080p -> 960px) agar ukuran JPEG kecil & cepat dikirim
+                h, w = frame_bgr.shape[:2]
+                if w > self.width:
+                    stream_frame = cv2.resize(frame_bgr, (self.width, int(h * self.width / w)), interpolation=cv2.INTER_LINEAR)
+                else:
+                    stream_frame = frame_bgr
+
+                ret, buf = cv2.imencode(".jpg", stream_frame, [cv2.IMWRITE_JPEG_QUALITY, self.quality])
+                if ret:
+                    with self.cond:
+                        self.latest_jpeg = buf.tobytes()
+                        self.last_update = time.time()
+                        self.frame_id += 1
+                        self.cond.notify_all()  # Bangunkan semua client MJPEG: frame langsung dikirim tanpa polling
+            except Exception:
+                pass
 
     def get_jpeg(self):
-        with self.lock:
+        with self.cond:
             return self.latest_jpeg
+
+    def wait_next(self, last_id, timeout=1.0):
+        """Tunggu frame yang lebih baru dari last_id. Return (frame_id, jpeg)."""
+        with self.cond:
+            self.cond.wait_for(lambda: self.frame_id != last_id, timeout=timeout)
+            return self.frame_id, self.latest_jpeg
 
     def get_standby_placeholder(self):
         """Buat gambar standby JPEG jika belum ada frame kamera yang masuk."""
@@ -88,7 +133,15 @@ class ThreadedHTTPServer(ThreadingMixIn, HTTPServer):
 
 
 class MJPEGHandler(BaseHTTPRequestHandler):
-    """Handler HTTP untuk menyiarkan Web Dashboard Lokal, snapshot JPEG, multipart MJPEG stream, dan status."""
+    """Handler HTTP untuk menyiarkan Web Dashboard Lokal, snapshot JPEG, multipart MJPEG stream, status, dan API lokal."""
+    db = None  # GateDatabase untuk API dashboard lokal (/api/...), diset oleh VideoStreamServer
+
+    def do_POST(self):
+        clean_path = unquote(self.path.split('?')[0])
+        if clean_path.startswith('/api/'):
+            local_api.handle(self, 'POST', clean_path, self.db)
+        else:
+            self.send_error(404)
 
     def do_OPTIONS(self):
         """Preflight CORS response untuk fetch browser dari Netlify HTTPS."""
@@ -100,6 +153,11 @@ class MJPEGHandler(BaseHTTPRequestHandler):
 
     def do_GET(self):
         clean_path = unquote(self.path.split('?')[0])
+
+        # 0. API Dashboard Lokal (login, log, kendaraan, buka gerbang) dari database PostgreSQL lokal
+        if clean_path.startswith('/api/'):
+            local_api.handle(self, 'GET', clean_path, self.db)
+            return
 
         # 1. Endpoint Status / Health Check
         if clean_path in ('/status', '/health'):
@@ -143,19 +201,23 @@ class MJPEGHandler(BaseHTTPRequestHandler):
             self.end_headers()
 
             try:
-                last_sent = 0.0
+                # Kirim setiap frame segera (tanpa menunggu buffer Nagle TCP)
+                self.connection.setsockopt(socket.IPPROTO_TCP, socket.TCP_NODELAY, 1)
+                last_id = -1
                 while True:
-                    jpeg = GLOBAL_HUB.get_jpeg()
+                    # Tunggu frame baru dari kamera (push instan); timeout 1 dtk agar placeholder tetap terkirim
+                    frame_id, jpeg = GLOBAL_HUB.wait_next(last_id, timeout=1.0)
+                    if frame_id == last_id and jpeg:
+                        continue
+                    last_id = frame_id
                     if not jpeg:
                         jpeg = GLOBAL_HUB.get_standby_placeholder()
-                    if jpeg and GLOBAL_HUB.last_update != last_sent:
-                        last_sent = GLOBAL_HUB.last_update
-                        self.wfile.write(b'--frame\r\n')
-                        self.wfile.write(b'Content-Type: image/jpeg\r\n')
-                        self.wfile.write(f'Content-Length: {len(jpeg)}\r\n\r\n'.encode('utf-8'))
-                        self.wfile.write(jpeg)
-                        self.wfile.write(b'\r\n')
-                    time.sleep(0.04)  # ~25 FPS
+                    self.wfile.write(
+                        b'--frame\r\nContent-Type: image/jpeg\r\n'
+                        + f'Content-Length: {len(jpeg)}\r\n\r\n'.encode('utf-8')
+                        + jpeg + b'\r\n'
+                    )
+                    self.wfile.flush()
             except (BrokenPipeError, ConnectionResetError):
                 pass
             except Exception:
@@ -205,9 +267,12 @@ class MJPEGHandler(BaseHTTPRequestHandler):
 
 class VideoStreamServer:
     """Server Web Dashboard Lokal + Kamera Streaming HTTP multi-thread & Cloudflare Tunnel otomatis."""
-    def __init__(self, host='0.0.0.0', port=5050):
+    def __init__(self, host='0.0.0.0', port=5050, enable_tunnel=True, width=640, quality=60, max_fps=0, db=None):
         self.host = host
         self.port = port
+        self.enable_tunnel = enable_tunnel
+        GLOBAL_HUB.configure(width=width, quality=quality, max_fps=max_fps)
+        MJPEGHandler.db = db
         self.server = None
         self.server_thread = None
         self.tunnel_process = None
@@ -225,16 +290,19 @@ class VideoStreamServer:
             print(f"  2. Buka dari Laptop/HP Lain   : http://{local_ip}:{self.port}  (1 WiFi)")
             print("=" * 70)
 
-            # Nyalakan Cloudflare Tunnel otomatis jika tersedia
-            self._start_cloudflare_tunnel()
+            # Nyalakan Cloudflare Tunnel otomatis jika diaktifkan & tersedia
+            if self.enable_tunnel:
+                self._start_cloudflare_tunnel()
+            else:
+                print("  [INFO] Cloudflare Tunnel nonaktif (CLOUDFLARE_TUNNEL_ENABLED = False): dashboard hanya lokal.")
         except Exception as e:
             print(f"[WARN] Gagal menyalakan Web Stream Server pada port {self.port}: {e}")
 
     def _start_cloudflare_tunnel(self):
         """Mencari cloudflared dan membuat URL HTTPS gratis untuk Netlify."""
         exe_path = None
-        if os.path.isfile("cloudflared.exe"):
-            exe_path = os.path.abspath("cloudflared.exe")
+        if os.path.isfile(CLOUDFLARED_EXE):
+            exe_path = CLOUDFLARED_EXE
         elif shutil.which("cloudflared"):
             exe_path = shutil.which("cloudflared")
 

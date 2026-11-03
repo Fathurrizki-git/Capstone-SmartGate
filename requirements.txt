@@ -1,0 +1,21 @@
+# ==============================================
+# Requirements untuk Mini PC (dan Laptop untuk development / simulasi)
+# Smart Parking Gate FT UNTIRTA (RFID + ALPR + ESP32)
+# ==============================================
+
+# Core & Computer Vision
+opencv-python>=4.8.0
+numpy>=1.24.0
+requests>=2.31.0
+
+# Deteksi webcam berdasarkan nama (melewati kamera virtual OBS / Cast)
+cv2-enumerate-cameras>=1.4
+
+# Database lokal PostgreSQL (driver + connection pool)
+psycopg[binary,pool]>=3.2
+
+# Komunikasi USB Serial ke ESP32
+pyserial>=3.5
+
+# USB RFID Reader HID Listener (hanya Mini PC Linux)
+evdev>=1.6.0; sys_platform == "linux"

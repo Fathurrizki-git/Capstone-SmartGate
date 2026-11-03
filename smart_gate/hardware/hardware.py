@@ -1,99 +1,81 @@
 """
 Modul Kontrol Perangkat Keras (Hardware Controller)
-Perangkat: Raspberry Pi 3 Model B+
+Arsitektur: Mini PC + Mikrokontroler ESP32 (USB Serial)
 
 Mendukung Komponen:
-1. Raspberry Pi 3 Model B+ (Sistem Utama)
-2. Webcam USB (via OpenCV)
-3. RFID USB 13.56 MHz (Background USB Listener)
-4. Buzzer Flash AD16-22SM 12V (GPIO22 - Pin 15)
-5. Motor Servo Palang (GPIO18 - Pin 12)
-6. LCD I2C 20x4 (SDA: GPIO2 / Pin 3, SCL: GPIO3 / Pin 5)
-7. Push Button Manual (GPIO27 - Pin 13)
-8. Dual Sensor Infrared E18-D80NK:
-   - Sensor IR 1 (Sebelum Palang): GPIO 17 - Pin 11 (Deteksi Kedatangan / ALPR)
-   - Sensor IR 2 (Setelah Palang): GPIO 23 - Pin 16 (Pemicu Penutup Palang)
+Terhubung langsung ke Mini PC:
+1. Webcam USB (via OpenCV, dikelola di main.py)
+2. RFID USB 13.56 MHz (mode keyboard HID)
+   - Linux  : dibaca langsung dari perangkat input via evdev (background listener)
+   - Windows: ketikan reader ditangkap dari terminal / jendela kamera via feed_keyboard_char()
+Terhubung ke ESP32 (dikendalikan via esp32_link.py):
+3. Dual Sensor Infrared E18-D80NK:
+   - Sensor IR 1 (Sebelum Palang): Deteksi Kedatangan / ALPR
+   - Sensor IR 2 (Setelah Palang): Pemicu Penutup Palang
+4. Push Button Manual
+5. Motor Servo Palang
+6. Buzzer Flash AD16-22SM 12V
+7. LCD I2C 20x4
 
 Didesain fleksibel:
-- Berjalan otomatis di Raspberry Pi dengan GPIO nyata.
-- Berjalan aman di PC / Windows dalam mode Simulasi (tanpa error RPi.GPIO).
+- Berjalan otomatis dengan perangkat keras nyata saat ESP32 terhubung.
+- Berjalan aman dalam mode Simulasi jika ESP32 belum terhubung.
 """
 
 import time
+import string
 import threading
 import queue
 import config
+from smart_gate.hardware.esp32_link import ESP32Link
 
-# Cek ketersediaan RPi.GPIO (Deteksi apakah berjalan di Raspberry Pi)
-HAS_RPI_GPIO = False
-try:
-    import RPi.GPIO as GPIO
-    GPIO.setmode(GPIO.BCM)
-    GPIO.setwarnings(False)
-    HAS_RPI_GPIO = True
-except (ImportError, RuntimeError):
-    HAS_RPI_GPIO = False
 
-# Cek ketersediaan modul LCD RPLCD
-HAS_RPLCD = False
-try:
-    from RPLCD.i2c import CharLCD
-    HAS_RPLCD = True
-except ImportError:
-    HAS_RPLCD = False
+def _lcd_safe(text: str) -> str:
+    """LCD HD44780 hanya mendukung ASCII; '|' dipakai sebagai pemisah baris protokol."""
+    return "".join(c if 32 <= ord(c) < 127 and c != '|' else ' ' for c in str(text))
 
 
 class LCDController:
-    """Pengontrol LCD I2C 20x4."""
-    def __init__(self, i2c_addr=config.LCD_I2C_ADDR, cols=config.LCD_COLS, rows=config.LCD_ROWS):
+    """Pengontrol LCD I2C 20x4 yang terpasang pada ESP32."""
+    def __init__(self, link: ESP32Link, cols=config.LCD_COLS, rows=config.LCD_ROWS):
+        self.link = link
         self.cols = cols
         self.rows = rows
-        self.lcd = None
-        self.enabled = False
+        self.lines = [""] * rows
+        self._sent_lines = None
 
-        if HAS_RPLCD:
-            try:
-                self.lcd = CharLCD(
-                    i2c_expander='PCF8574',
-                    address=i2c_addr,
-                    port=config.LCD_I2C_BUS,
-                    cols=cols,
-                    rows=rows,
-                    charmap='A00'
-                )
-                self.lcd.clear()
-                self.enabled = True
-                print("[OK] LCD I2C 20x4 terhubung.")
-            except Exception as e:
-                print(f"[WARN] LCD I2C belum terhubung di alamat {hex(i2c_addr)}: {e}")
-        else:
-            print("[INFO] Mode Simulasi LCD 20x4 aktif.")
+    def _push(self, force=False) -> bool:
+        """Kirim isi LCD ke ESP32 (hanya jika berubah, agar tidak berkedip)."""
+        if not self.link.connected:
+            return False
+        if not force and self._sent_lines == self.lines:
+            return True
+        payload = "|".join(_lcd_safe(l)[:self.cols].ljust(self.cols) for l in self.lines)
+        if self.link.send("LCD:" + payload):
+            self._sent_lines = list(self.lines)
+            return True
+        return False
+
+    def redraw(self):
+        """Tulis ulang seluruh isi LCD (dipanggil saat ESP32 reset / tersambung ulang)."""
+        self._push(force=True)
 
     def clear(self):
-        if self.enabled and self.lcd:
-            try:
-                self.lcd.clear()
-            except Exception:
-                pass
+        self.lines = [""] * self.rows
+        if self.link.send("LCDCLR"):
+            self._sent_lines = list(self.lines)
 
     def display(self, line1="", line2="", line3="", line4=""):
         """Tampilkan 4 baris teks pada LCD 20x4 (otomatis center/rata)."""
-        lines = [line1[:self.cols], line2[:self.cols], line3[:self.cols], line4[:self.cols]]
-        
-        # Cetak ke layar fisik jika terpasang
-        if self.enabled and self.lcd:
-            try:
-                self.lcd.clear()
-                for idx, text in enumerate(lines):
-                    self.lcd.cursor_pos = (idx, 0)
-                    self.lcd.write_string(text.ljust(self.cols))
-                return
-            except Exception as e:
-                print(f"[WARN] Gagal update LCD fisik: {e}")
+        self.lines = [line1[:self.cols], line2[:self.cols], line3[:self.cols], line4[:self.cols]]
+
+        # Cetak ke layar fisik via ESP32 jika terhubung
+        if self._push():
+            return
 
         # Tampilan Simulasi di Console
         print("\n+--------------------+ (LCD 20x4)")
-        for l in lines:
+        for l in self.lines:
             print(f"|{l.center(self.cols)}|")
         print("+--------------------+\n")
 
@@ -112,157 +94,117 @@ class HardwareManager:
     Manajer terpusat untuk seluruh perangkat keras Smart Parking Gate FT Untirta.
     """
     def __init__(self):
-        self.is_rpi = HAS_RPI_GPIO
-        self.lcd = LCDController()
-        self.servo_pwm = None
-        self.gate_is_open = False
+        self.esp = ESP32Link()
+        self.lcd = LCDController(self.esp)
+        self.esp.on_ready = self.lcd.redraw
         self.rfid_queue = queue.Queue()
+        self._rfid_buffer = ""
+        self._rfid_last_key = 0.0
 
-        if self.is_rpi:
-            print("[OK] Menginisialisasi GPIO Raspberry Pi 3 Model B+...")
-            # 1. Dual Sensor Infrared E18-D80NK (Active LOW: 0 = Terdeteksi, 1 = Bebas)
-            # Sensor 1 (Sebelum Palang): Pemicu deteksi kedatangan & ALPR
-            GPIO.setup(config.PIN_IR_BEFORE, GPIO.IN, pull_up_down=GPIO.PUD_UP)
-            # Sensor 2 (Setelah Palang): Pemicu penutupan palang otomatis
-            GPIO.setup(config.PIN_IR_AFTER, GPIO.IN, pull_up_down=GPIO.PUD_UP)
-            
-            # 2. Push Button Manual (Active LOW)
-            GPIO.setup(config.PIN_PUSH_BUTTON, GPIO.IN, pull_up_down=GPIO.PUD_UP)
-            
-            # 3. Buzzer Flash 12V (Active HIGH)
-            GPIO.setup(config.PIN_BUZZER, GPIO.OUT)
-            GPIO.output(config.PIN_BUZZER, GPIO.LOW)
-            
-            # 4. Motor Servo (PWM 50Hz pada GPIO 18)
-            GPIO.setup(config.PIN_SERVO, GPIO.OUT)
-            self.servo_pwm = GPIO.PWM(config.PIN_SERVO, 50) # 50Hz frekuensi standar servo
-            self.servo_pwm.start(self._angle_to_duty(config.SERVO_CLOSE_ANGLE))
-            time.sleep(0.3)
-            self.servo_pwm.ChangeDutyCycle(0) # Lepas sinyal agar tidak jitter
+        if self.esp.connected:
+            print("[OK] ESP32 siap mengendalikan Sensor IR, Push Button, Servo, Buzzer, dan LCD.")
         else:
-            print("[SIMULASI] Mode PC aktif (Sensor, Button, Buzzer, dan Servo disimulasikan).")
+            print("[SIMULASI] ESP32 belum terhubung (Sensor, Button, Buzzer, Servo, dan LCD disimulasikan).")
 
         # Inisialisasi thread pembaca RFID USB
         self._start_rfid_listener()
 
-    def _angle_to_duty(self, angle: float) -> float:
-        """Konversi sudut 0-180 derajat ke duty cycle PWM (2.5% - 12.5%)."""
-        return 2.5 + (angle / 180.0) * 10.0
+    @property
+    def is_connected(self) -> bool:
+        """True jika ESP32 terhubung (mode perangkat keras nyata)."""
+        return self.esp.connected
 
     def set_servo_angle(self, angle: float):
         """Atur sudut servo palang gerbang."""
-        if self.is_rpi and self.servo_pwm:
-            duty = self._angle_to_duty(angle)
-            self.servo_pwm.ChangeDutyCycle(duty)
-            time.sleep(0.35)
-            self.servo_pwm.ChangeDutyCycle(0) # Mencegah dengung / panas servo
+        if self.esp.connected and self.esp.send(f"SERVO:{int(angle)}"):
+            time.sleep(0.35)  # Beri waktu servo mencapai posisi
         else:
             state = "TERBUKA (90°)" if angle >= 45 else "TERTUTUP (0°)"
             print(f"  [SERVO] Palang diputar ke sudut {angle}° -> Posisi: {state}")
 
     def open_gate(self):
         """Buka palang gerbang."""
-        self.gate_is_open = True
         self.set_servo_angle(config.SERVO_OPEN_ANGLE)
         print("  [GERBANG] Palang TERBUKA.")
 
     def close_gate(self):
         """Tutup palang gerbang."""
-        self.gate_is_open = False
         self.set_servo_angle(config.SERVO_CLOSE_ANGLE)
         print("  [GERBANG] Palang TERTUTUP.")
 
     def buzzer_beep(self, duration=0.15, count=1):
-        """Bunyikan buzzer (konfirmasi akses diterima)."""
-        def _run():
-            for _ in range(count):
-                if self.is_rpi:
-                    GPIO.output(config.PIN_BUZZER, GPIO.HIGH)
-                    time.sleep(duration)
-                    GPIO.output(config.PIN_BUZZER, GPIO.LOW)
-                    time.sleep(0.08)
-                else:
-                    print("  [BUZZER] BEEP! (Flash)")
-                    time.sleep(duration)
-        threading.Thread(target=_run, daemon=True).start()
+        """Bunyikan buzzer (konfirmasi akses diterima). Pola bunyi dijalankan non-blocking di ESP32."""
+        if not (self.esp.connected and self.esp.send(f"BEEP:{int(duration * 1000)}:{count}")):
+            print(f"  [BUZZER] BEEP! x{count} (Flash)")
 
     def buzzer_alert(self):
         """Bunyikan alarm buzzer panjang (akses ditolak / tidak terdaftar)."""
-        def _run():
-            if self.is_rpi:
-                GPIO.output(config.PIN_BUZZER, GPIO.HIGH)
-                time.sleep(0.8)
-                GPIO.output(config.PIN_BUZZER, GPIO.LOW)
-            else:
-                print("  [BUZZER] ALARM PANJANG! (Akses Ditolak)")
-        threading.Thread(target=_run, daemon=True).start()
+        if not (self.esp.connected and self.esp.send("ALERT:800")):
+            print("  [BUZZER] ALARM PANJANG! (Akses Ditolak)")
 
     def is_vehicle_at_sensor1(self) -> bool:
-        """
-        Cek apakah Sensor IR 1 (sebelum palang) mendeteksi kendaraan mendekat.
-        Sensor E18-D80NK aktif LOW (0 = ada kendaraan, 1 = tidak ada).
-        """
-        if self.is_rpi:
-            return GPIO.input(config.PIN_IR_BEFORE) == GPIO.LOW
-        return False
+        """Cek apakah Sensor IR 1 (sebelum palang) mendeteksi kendaraan mendekat."""
+        return self.esp.connected and self.esp.ir_before
 
     def is_vehicle_at_sensor2(self) -> bool:
-        """
-        Cek apakah Sensor IR 2 (setelah palang) mendeteksi kendaraan melintas.
-        Sensor E18-D80NK aktif LOW (0 = ada kendaraan, 1 = tidak ada).
-        """
-        if self.is_rpi:
-            return GPIO.input(config.PIN_IR_AFTER) == GPIO.LOW
-        return False
-
-    def is_vehicle_detected(self) -> bool:
-        """Alias untuk is_vehicle_at_sensor1() untuk kompatibilitas."""
-        return self.is_vehicle_at_sensor1()
+        """Cek apakah Sensor IR 2 (setelah palang) mendeteksi kendaraan melintas."""
+        return self.esp.connected and self.esp.ir_after
 
     def is_button_pressed(self) -> bool:
         """
         Cek apakah tombol push button ditekan oleh petugas.
-        Push Button aktif LOW (0 = ditekan, 1 = dilepas).
+        Setiap tekanan (sudah di-debounce oleh ESP32) hanya dilaporkan sekali.
         """
-        if self.is_rpi:
-            return GPIO.input(config.PIN_PUSH_BUTTON) == GPIO.LOW
-        return False
+        return self.esp.pop_button_press()
 
-    def wait_for_vehicle_clear(self, timeout=8.0):
+    def feed_keyboard_char(self, ch: str) -> bool:
         """
-        Tunggu sampai kendaraan melewati gerbang (sensor IR kembali HIGH / tidak ada objek)
-        sebelum palang otomatis ditutup demi keselamatan.
+        Tampung ketikan dari RFID USB mode keyboard (Windows: terminal / jendela kamera).
+        Reader mengetik UID dengan sangat cepat lalu diakhiri ENTER.
+        Return True jika karakter dipakai sebagai bagian UID (tidak perlu diproses sebagai tombol).
         """
-        start = time.time()
-        print("  [SAFETY] Menunggu kendaraan selesai melintas...")
-        time.sleep(1.5) # Jeda awal saat kendaraan mulai maju
-        
-        while time.time() - start < timeout:
-            if not self.is_vehicle_detected():
-                time.sleep(1.0) # Pastikan benar-benar lewat
+        now = time.time()
+        if now - self._rfid_last_key > 0.5:
+            self._rfid_buffer = ""
+        self._rfid_last_key = now
+
+        if ch in ('\r', '\n'):
+            uid = self._rfid_buffer
+            self._rfid_buffer = ""
+            if len(uid) >= getattr(config, 'RFID_MIN_LENGTH', 4):
+                self.rfid_queue.put(uid)
                 return True
-            time.sleep(0.2)
+            return False
+
+        if ch in string.hexdigits:
+            self._rfid_buffer += ch.upper()
+            return True
         return False
 
     def _start_rfid_listener(self):
         """
-        Listener background untuk membaca kartu RFID USB (13.56 MHz).
+        Listener background untuk membaca kartu RFID USB (13.56 MHz) di Linux.
         Umumnya USB RFID reader bertindak sebagai keyboard HID.
         """
         def _listen():
-            # Jika dijalankan pada RPi dengan evdev terpasang
+            # Jika dijalankan pada Mini PC Linux dengan evdev terpasang
             try:
                 import evdev
+                keywords = getattr(config, 'RFID_DEVICE_KEYWORDS', ['rfid', 'reader', 'card', 'hid'])
                 devices = [evdev.InputDevice(path) for path in evdev.list_devices()]
                 rfid_dev = None
                 for dev in devices:
                     # Cari perangkat RFID / barcode USB reader
-                    if any(term in dev.name.lower() for term in ['rfid', 'reader', 'card', 'hid']):
+                    if any(term in dev.name.lower() for term in keywords):
                         rfid_dev = dev
                         break
 
                 if rfid_dev:
                     print(f"[OK] RFID USB terdeteksi: {rfid_dev.name}")
+                    try:
+                        rfid_dev.grab()  # Ketikan reader tidak ikut masuk ke terminal / jendela lain
+                    except Exception:
+                        pass
                     card_buffer = ""
                     for event in rfid_dev.read_loop():
                         if event.type == evdev.ecodes.EV_KEY and event.value == 1:
@@ -276,7 +218,7 @@ class HardwareManager:
                                 if len(char) == 1:
                                     card_buffer += char
             except Exception:
-                # Mode fallback / non-Linux
+                # Mode fallback / non-Linux (Windows memakai feed_keyboard_char)
                 pass
 
         threading.Thread(target=_listen, daemon=True).start()
@@ -289,14 +231,10 @@ class HardwareManager:
             return None
 
     def cleanup(self):
-        """Lepaskan seluruh resource GPIO saat aplikasi ditutup."""
+        """Lepaskan koneksi ESP32 saat aplikasi ditutup."""
         print("[INFO] Membersihkan resource perangkat keras...")
         try:
             self.lcd.clear()
-            if self.is_rpi and self.servo_pwm:
-                self.servo_pwm.stop()
-            if self.is_rpi:
-                GPIO.cleanup()
+            self.esp.close()
         except Exception:
             pass
-

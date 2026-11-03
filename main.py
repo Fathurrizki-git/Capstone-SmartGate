@@ -1,6 +1,6 @@
 """
 Sistem Smart Parking Gate FT UNTIRTA (EXIT GATE — GERBANG KELUAR)
-Platform: Raspberry Pi 3 Model B+
+Platform: Mini PC (Pusat Pemrosesan) + ESP32 (Kontrol I/O Gerbang via USB Serial)
 
 Sistem Verifikasi Ganda (Dual-Factor Authentication):
 - KEDUA PARAMETER (PLAT NOMOR DAN KARTU RFID) HARUS COCOK dengan database!
@@ -9,30 +9,39 @@ Sistem Verifikasi Ganda (Dual-Factor Authentication):
 - Jika kendaraan belum terdaftar (Tamu) -> Petugas verifikasi manual lalu tekan Push Button.
 
 Komponen Terintegrasi:
-  1. Raspberry Pi 3 Model B+ (Pusat Kontrol)
+  Mini PC (USB):
+  1. Mini PC (Pusat Kontrol: ALPR, Database, Web Stream)
   2. Webcam USB (Perekam Plat Keluar)
   3. RFID USB 13.56 MHz (Pembaca Kartu Civitas)
-  4. Buzzer Flash AD16-22SM 12V (GPIO22 - Pin 15)
-  5. Motor Servo Palang (GPIO18 - Pin 12)
-  6. LCD I2C 20x4 (SDA: GPIO2 / Pin 3, SCL: GPIO3 / Pin 5)
-  7. Push Button Manual (GPIO27 - Pin 13)
-  8. Dual Sensor Infrared E18-D80NK:
-     - Sensor IR 1 (Sebelum Palang): GPIO 17 - Pin 11 (Deteksi Kedatangan / ALPR)
-     - Sensor IR 2 (Setelah Palang): GPIO 23 - Pin 16 (Pemicu Penutup Palang)
+  4. ESP32 DevKit (USB Serial)
+  ESP32 (GPIO):
+  5. Buzzer Flash AD16-22SM 12V (GPIO26 via Transistor NPN)
+  6. Motor Servo Palang (GPIO13)
+  7. LCD I2C 20x4 (SDA: GPIO21, SCL: GPIO22)
+  8. Push Button Manual (GPIO27)
+  9. Dual Sensor Infrared E18-D80NK:
+     - Sensor IR 1 (Sebelum Palang): GPIO32 (Deteksi Kedatangan / ALPR)
+     - Sensor IR 2 (Setelah Palang): GPIO33 (Pemicu Penutup Palang)
 """
 
 import os
+import re
 import sys
 import time
 import argparse
+
+# Harus diset SEBELUM cv2 di-import: tanpa ini backend MSMF butuh ~30 detik untuk membuka webcam
+os.environ.setdefault("OPENCV_VIDEOIO_MSMF_ENABLE_HW_TRANSFORMS", "0")
+
 import cv2
 import numpy as np
 
 import config
-from hardware import HardwareManager
-from plate_recognizer import PlateRecognizerAPI, draw_results
-from supabase_logger import SupabaseLogger
-from stream_server import VideoStreamServer
+from smart_gate.vision.camera import CameraStream
+from smart_gate.hardware.hardware import HardwareManager
+from smart_gate.vision.plate_recognizer import PlateRecognizerAPI, draw_results
+from smart_gate.database.gate_database import GateDatabase
+from smart_gate.web.stream_server import VideoStreamServer
 import threading
 
 
@@ -42,20 +51,27 @@ class SmartParkingExitGate:
         print("  SMART PARKING GATE FT UNTIRTA — GERBANG KELUAR (EXIT ONLY)")
         print("  Sistem Verifikasi: DUAL AUTH (PLAT DAN RFID HARUS MATCH!)")
         print("  Bypass Tamu: Push Button Manual Petugas")
-        print("  Database: SUPABASE (Arah: OUT / Keluar)")
+        print("  Database: POSTGRESQL LOKAL + Sinkron SUPABASE (Arah: OUT / Keluar)")
         print("=" * 65)
 
         # 1. Inisialisasi Perangkat Keras
         self.hw = HardwareManager()
 
-        # 2. Inisialisasi Database Logger & AI API
-        self.db = SupabaseLogger()
+        # 2. Inisialisasi Database Lokal (+ sinkron Supabase di background) & AI API
+        self.db = GateDatabase()
         self.api = PlateRecognizerAPI()
 
         # 3. Inisialisasi Live Web Stream Server (Port 5050)
         self.stream_server = None
         if getattr(config, 'STREAM_ENABLED', True):
-            self.stream_server = VideoStreamServer(port=getattr(config, 'STREAM_PORT', 5050))
+            self.stream_server = VideoStreamServer(
+                port=getattr(config, 'STREAM_PORT', 5050),
+                enable_tunnel=getattr(config, 'CLOUDFLARE_TUNNEL_ENABLED', True),
+                width=getattr(config, 'STREAM_WIDTH', 640),
+                quality=getattr(config, 'STREAM_JPEG_QUALITY', 60),
+                max_fps=getattr(config, 'STREAM_MAX_FPS', 0),
+                db=self.db
+            )
             self.stream_server.start()
 
         # 4. Listener Tombol Terminal VSCode (Spasi, M, Q)
@@ -65,9 +81,10 @@ class SmartParkingExitGate:
         self.stop_terminal_listener = False
         self._start_terminal_listener()
 
-        # 5. Inisialisasi Kamera USB
-        self.cap = None
-        self._init_camera()
+        # 5. Inisialisasi Kamera USB (thread terpisah: live stream tetap berjalan saat verifikasi)
+        self.camera = CameraStream(
+            on_frame=self.stream_server.update_frame if self.stream_server else None
+        )
 
         if config.SAVE_RESULTS:
             os.makedirs(config.OUTPUT_DIR, exist_ok=True)
@@ -86,36 +103,11 @@ class SmartParkingExitGate:
 
         print("[OK] Gerbang keluar siap beroperasi dengan verifikasi PLAT + RFID!\n")
 
-    def _init_camera(self):
-        """Buka koneksi Webcam USB dengan auto-detect index dan backend DirectShow."""
-        indices_to_try = [config.CAMERA_INDEX, 1, 0, 2]
-        seen = set()
-        clean_indices = [x for x in indices_to_try if not (x in seen or seen.add(x))]
-
-        for idx in clean_indices:
-            # Di Windows, gunakan DirectShow terlebih dahulu agar stabil dan cepat
-            if sys.platform.startswith('win'):
-                self.cap = cv2.VideoCapture(idx, cv2.CAP_DSHOW)
-            else:
-                self.cap = cv2.VideoCapture(idx)
-
-            if not self.cap or not self.cap.isOpened():
-                self.cap = cv2.VideoCapture(idx)
-
-            if self.cap and self.cap.isOpened():
-                ret, test_frame = self.cap.read()
-                if ret and test_frame is not None:
-                    self.cap.set(cv2.CAP_PROP_FRAME_WIDTH, config.CAMERA_WIDTH)
-                    self.cap.set(cv2.CAP_PROP_FRAME_HEIGHT, config.CAMERA_HEIGHT)
-                    print(f"[OK] Webcam aktif dan terhubung pada index {idx} ({test_frame.shape[1]}x{test_frame.shape[0]}).")
-                    return
-                else:
-                    self.cap.release()
-
-        print("[WARN] Webcam USB belum terdeteksi. Silakan periksa koneksi webcam atau perizinan kamera.")
-
     def _start_terminal_listener(self):
-        """Membaca tombol keyboard (Spasi, M, Q) langsung di Terminal VSCode."""
+        """
+        Membaca tombol keyboard (Spasi, M, Q) langsung di Terminal VSCode.
+        Ketikan RFID USB (mode keyboard) yang masuk ke terminal diteruskan ke buffer RFID.
+        """
         if not sys.platform.startswith('win'):
             return
 
@@ -125,6 +117,11 @@ class SmartParkingExitGate:
                 try:
                     if msvcrt.kbhit():
                         ch = msvcrt.getch()
+                        if ch in (b'\x00', b'\xe0'):  # Tombol khusus (panah/F1..), abaikan kode keduanya
+                            msvcrt.getch()
+                            continue
+                        if self.hw.feed_keyboard_char(ch.decode('latin-1')):
+                            continue
                         if ch in (b' ', b'\r'):  # Tombol SPASI atau ENTER ditekan di terminal VSCode
                             self.terminal_trigger = True
                         elif ch in (b'm', b'M'):  # Tombol M (Buka Manual)
@@ -139,20 +136,30 @@ class SmartParkingExitGate:
         t = threading.Thread(target=_terminal_loop, daemon=True)
         t.start()
 
+    def _wait_key(self, delay_ms: int) -> int:
+        """cv2.waitKey yang meneruskan ketikan RFID USB (mode keyboard) ke buffer RFID."""
+        key = cv2.waitKey(delay_ms) & 0xFF
+        if key != 255 and self.hw.feed_keyboard_char(chr(key)):
+            return 255
+        return key
+
+    def _show_for(self, seconds: float):
+        """Tahan tampilan jendela kamera tanpa menghilangkan ketikan RFID yang masuk."""
+        end = time.time() + seconds
+        while time.time() < end:
+            self._wait_key(20)
+
+    def _fit_preview(self, frame):
+        """Salinan frame yang diperkecil untuk jendela preview (frame 1080p lebih besar dari layar)."""
+        max_w = getattr(config, 'PREVIEW_WIDTH', 960)
+        h, w = frame.shape[:2]
+        if w <= max_w:
+            return frame.copy()
+        return cv2.resize(frame, (max_w, int(h * max_w / w)), interpolation=cv2.INTER_AREA)
+
     def capture_frame(self):
-        """Ambil 1 frame citra jernih dari webcam USB."""
-        if not self.cap or not self.cap.isOpened():
-            self._init_camera()
-            if not self.cap or not self.cap.isOpened():
-                return None
-
-        for _ in range(2):
-            self.cap.read()
-
-        ret, frame = self.cap.read()
-        if ret and frame is not None:
-            return frame
-        return None
+        """Ambil 1 frame citra terbaru dari webcam USB (diambil setelah fungsi dipanggil)."""
+        return self.camera.read_fresh()
 
     def handle_exit_success(self, info: dict):
         """Aksi saat KEDUA PARAMETER (Plat + RFID) COCOK atau AUTO-BIND Berhasil."""
@@ -210,6 +217,14 @@ class SmartParkingExitGate:
                 "KARTU BUKAN MILIKNYA",
                 "MOHON LAPOR SATPAM  "
             )
+        elif reason == "DB_OFFLINE":
+            print(f"\n>>> [AKSES DITOLAK \u26a0\ufe0f] DATABASE LOKAL TIDAK DAPAT DIAKSES: {plate}")
+            self.hw.lcd.display(
+                "! DATABASE OFFLINE !",
+                f"PLAT: {plate[:14]}",
+                "VERIFIKASI GAGAL    ",
+                "MOHON LAPOR PETUGAS "
+            )
         else:
             print(f"\n>>> [AKSES DITOLAK \u26a0\ufe0f] BELUM TERDAFTAR: {plate}")
             self.hw.lcd.display(
@@ -225,7 +240,7 @@ class SmartParkingExitGate:
         # Palang TETAP TERTUTUP demi keamanan
         self.hw.close_gate()
 
-        # Catat kegagalan ke Supabase
+        # Catat kegagalan ke database lokal (disinkron ke Supabase)
         self.db.log_vehicle(
             plate_text=plate,
             confidence=info.get("confidence", 80.0),
@@ -249,7 +264,7 @@ class SmartParkingExitGate:
         self.hw.buzzer_beep(0.2, 1)
         self.hw.open_gate()
 
-        # Catat log keluar manual ke Supabase
+        # Catat log keluar manual ke database lokal (disinkron ke Supabase)
         manual_info = {
             "matched": True,
             "plate": "MANUAL-EXIT",
@@ -271,9 +286,13 @@ class SmartParkingExitGate:
         self.wait_and_close_gate()
 
     def handle_web_remote_override(self, cmd_info: dict):
-        """Buka gerbang keluar via instruksi jarak jauh dari Web Dashboard Petugas (Supabase)."""
-        operator = cmd_info.get("operator_name", "Petugas Web")
-        print(f"\n>>> [REMOTE WEB KELUAR] Perintah buka palang diterima dari Website oleh: {operator}!")
+        """
+        Buka gerbang keluar via Web Dashboard Petugas (lokal :5050 langsung, atau Netlify via Supabase).
+        Log hanya dicatat di sini (saat palang benar-benar dibuka), bukan oleh dashboard.
+        """
+        operator = cmd_info.get("operator_name") or "Petugas Web"
+        source = "DASHBOARD LOKAL" if cmd_info.get("source") == "LOCAL" else "NETLIFY"
+        print(f"\n>>> [REMOTE WEB KELUAR] Perintah buka palang diterima dari {source} oleh: {operator}!")
         self.hw.lcd.display(
             "** REMOTE BUKA WEB *",
             f"PETUGAS: {operator[:11]}",
@@ -283,18 +302,27 @@ class SmartParkingExitGate:
         self.hw.buzzer_beep(0.2, 1)
         self.hw.open_gate()
 
-        # Catat log keluar manual remote web ke Supabase
-        manual_info = {
-            "matched": True,
-            "plate": "MANUAL-WEB",
-            "owner_name": f"Tamu (Web: {operator})",
-            "category": "ACADEMIC COMMUNITY",
-            "nim_nip": "-",
-            "status": "TERDAFTAR",
-            "confidence": 100.0
-        }
+        # Plat target: dari dashboard lokal (field plate) atau dari Netlify (format alasan "... [PLAT]")
+        plate = (cmd_info.get("plate") or "").strip()
+        if not plate:
+            m = re.search(r"\[([^\]]+)\]\s*$", cmd_info.get("reason") or "")
+            plate = m.group(1).strip() if m else ""
+        vehicle = self.db.lookup_vehicle(plate) if plate and plate != "MANUAL-WEB" else {"matched": False}
+
+        if vehicle.get("matched"):
+            manual_info = {**vehicle, "confidence": 100.0}
+        else:
+            manual_info = {
+                "matched": True,
+                "plate": plate or "MANUAL-WEB",
+                "owner_name": f"Tamu (Web: {operator})",
+                "category": "ACADEMIC COMMUNITY",
+                "nim_nip": "-",
+                "status": "TERDAFTAR",
+                "confidence": 100.0
+            }
         self.db.log_vehicle(
-            plate_text="MANUAL-WEB",
+            plate_text=manual_info["plate"],
             confidence=100.0,
             direction="OUT",
             method="WEB_MANUAL",
@@ -311,9 +339,9 @@ class SmartParkingExitGate:
         - Sensor IR 2 (Setelah Palang): Mendeteksi kendaraan melintas melewati palang.
 
         Alur Eksekusi Tanpa Bug:
-        1. Tunggu kendaraan bergerak maju & memicu Sensor IR 2 (PIN_IR_AFTER == LOW).
+        1. Tunggu kendaraan bergerak maju & memicu Sensor IR 2 (ESP32 melaporkan IR2 = 1).
            Jika kendaraan mogok/batal melintas hingga GATE_MAX_WAIT detik, palang ditutup fail-safe.
-        2. Tunggu kendaraan SELESAI melintasi Sensor IR 2 (PIN_IR_AFTER == HIGH).
+        2. Tunggu kendaraan SELESAI melintasi Sensor IR 2 (ESP32 melaporkan IR2 = 0).
            Mencegah palang turun saat bodi kendaraan masih berada di bawah palang/sensor.
         3. Mulai timer jeda GATE_CLOSE_DELAY (misal 2.0 detik) sebelum palang menutup.
            PROTEKSI RE-TRIGGER: Jika Sensor IR 2 terhalang kembali selama countdown
@@ -321,8 +349,8 @@ class SmartParkingExitGate:
            dan kembali menunggu sensor bebas agar palang tidak pernah menimpa kendaraan!
         4. Setelah timer selesai dan aman, buzzer berbunyi singkat & palang ditutup ke 0 derajat.
         """
-        if not self.hw.is_rpi:
-            # Mode Simulasi di PC / Windows
+        if not self.hw.is_connected:
+            # Mode Simulasi (ESP32 belum terhubung)
             print("  [SIMULASI] Menunggu kendaraan melaju menuju Sensor IR 2 (Setelah Palang)...")
             time.sleep(1.2)
             print("  [SIMULASI] Sensor IR 2 TERDETEKSI (Kendaraan sedang melintas di bawah palang).")
@@ -521,9 +549,9 @@ class SmartParkingExitGate:
 
         # Tampilkan visual deteksi plat pada jendela kamera
         if getattr(config, 'SHOW_PREVIEW', True):
-            annotated_disp = draw_results(frame.copy(), [best])
+            annotated_disp = self._fit_preview(draw_results(frame.copy(), [best]))
             cv2.imshow("Smart Parking Gate ALPR - FT Untirta", annotated_disp)
-            cv2.waitKey(800)
+            self._show_for(0.8)
 
         # 2. Ambil Kartu RFID (Cek juga apakah plat sedang menunggu Auto-Bind kartu baru)
         veh_precheck = self.db.lookup_vehicle(plate_text)
@@ -539,7 +567,7 @@ class SmartParkingExitGate:
             self.hw.buzzer_beep(0.1, 1)
 
             print(f"  [MENUNGGU RFID] Menunggu pengendara tap kartu (maks {timeout} detik)...")
-            if not self.hw.is_rpi:
+            if not self.hw.is_connected:
                 print("  [SIMULASI PC] Tekan [SPASI] di jendela kamera untuk simulasi Tap RFID.")
 
             while time.time() - start_wait < timeout:
@@ -560,45 +588,44 @@ class SmartParkingExitGate:
                     )
 
                 # Jika mode preview kamera aktif, tetap perbarui frame agar tidak macet
-                if getattr(config, 'SHOW_PREVIEW', True) and self.cap and self.cap.isOpened():
-                    rf_ok, rf_frame = self.cap.read()
-                    if rf_ok and rf_frame is not None:
-                        disp = rf_frame.copy()
-                        dh, dw = disp.shape[:2]
-                        cv2.rectangle(disp, (0, 0), (dw, 55), (20, 20, 20), -1)
-                        cv2.putText(disp, f"PLAT TERDETEKSI: {plate_text} ({int(conf*100)}%)", (15, 25),
-                                    cv2.FONT_HERSHEY_SIMPLEX, 0.65, (0, 255, 0), 2)
-                        sub_prompt = (
-                            f"AKTIVASI AUTO-BIND: TAP RFID BARU ({remaining}s) | [SPASI]: SIMULASI"
-                            if needs_bind else
-                            f"SILAKAN TAP RFID (Sisa: {remaining}s) | TEKAN [SPASI] UNTUK SIMULASI TAP"
-                        )
-                        cv2.putText(disp, sub_prompt,
-                                    (15, 48), cv2.FONT_HERSHEY_SIMPLEX, 0.43, (0, 255, 255), 1)
-                        cv2.imshow("Smart Parking Gate ALPR - FT Untirta", disp)
-                        k = cv2.waitKey(60) & 0xFF
-                        if k == ord(' ') or k == 13 or self.terminal_trigger:
-                            self.terminal_trigger = False
-                            matched_veh = self.db.lookup_vehicle(plate_text)
-                            if matched_veh.get("matched"):
-                                existing_uid = matched_veh.get("rfid_uid")
-                                if existing_uid:
-                                    rfid_uid = existing_uid
-                                else:
-                                    # Simulasi kartu RFID kosong baru untuk Auto-Bind
-                                    rfid_uid = f"0009{int(time.time()) % 1000000:06d}"
+                rf_frame = self.camera.read() if getattr(config, 'SHOW_PREVIEW', True) else None
+                if rf_frame is not None:
+                    disp = self._fit_preview(rf_frame)
+                    dh, dw = disp.shape[:2]
+                    cv2.rectangle(disp, (0, 0), (dw, 55), (20, 20, 20), -1)
+                    cv2.putText(disp, f"PLAT TERDETEKSI: {plate_text} ({int(conf*100)}%)", (15, 25),
+                                cv2.FONT_HERSHEY_SIMPLEX, 0.65, (0, 255, 0), 2)
+                    sub_prompt = (
+                        f"AKTIVASI AUTO-BIND: TAP RFID BARU ({remaining}s) | [SPASI]: SIMULASI"
+                        if needs_bind else
+                        f"SILAKAN TAP RFID (Sisa: {remaining}s) | TEKAN [SPASI] UNTUK SIMULASI TAP"
+                    )
+                    cv2.putText(disp, sub_prompt,
+                                (15, 48), cv2.FONT_HERSHEY_SIMPLEX, 0.43, (0, 255, 255), 1)
+                    cv2.imshow("Smart Parking Gate ALPR - FT Untirta", disp)
+                    k = self._wait_key(60)
+                    if k == ord(' ') or k == 13 or self.terminal_trigger:
+                        self.terminal_trigger = False
+                        matched_veh = self.db.lookup_vehicle(plate_text)
+                        if matched_veh.get("matched"):
+                            existing_uid = matched_veh.get("rfid_uid")
+                            if existing_uid:
+                                rfid_uid = existing_uid
                             else:
-                                # Simulasi kartu RFID baru yang di-tap oleh pengendara belum terdaftar
-                                rfid_uid = f"0008{int(time.time()) % 1000000:06d}"
-                            print(f"  [SIMULASI PC \u2705] Tap RFID disimulasikan via Terminal/Kamera: {rfid_uid}")
-                            self.hw.buzzer_beep(0.08, 1)
-                            break
-                        elif k == ord('m') or k == ord('M') or self.terminal_manual:
-                            self.terminal_manual = False
-                            self.handle_manual_override()
-                            return
-                        elif k == ord('q') or k == ord('Q') or k == 27 or self.terminal_quit:
-                            return
+                                # Simulasi kartu RFID kosong baru untuk Auto-Bind
+                                rfid_uid = f"0009{int(time.time()) % 1000000:06d}"
+                        else:
+                            # Simulasi kartu RFID baru yang di-tap oleh pengendara belum terdaftar
+                            rfid_uid = f"0008{int(time.time()) % 1000000:06d}"
+                        print(f"  [SIMULASI PC \u2705] Tap RFID disimulasikan via Terminal/Kamera: {rfid_uid}")
+                        self.hw.buzzer_beep(0.08, 1)
+                        break
+                    elif k == ord('m') or k == ord('M') or self.terminal_manual:
+                        self.terminal_manual = False
+                        self.handle_manual_override()
+                        return
+                    elif k == ord('q') or k == ord('Q') or k == 27 or self.terminal_quit:
+                        return
 
                 # Cek jika ada trigger dari terminal VSCode saat preview tidak aktif
                 if self.terminal_trigger:
@@ -627,7 +654,7 @@ class SmartParkingExitGate:
                     self.hw.buzzer_beep(0.08, 1)
                     break
 
-                if not getattr(config, 'SHOW_PREVIEW', True):
+                if rf_frame is None:
                     time.sleep(0.2)
 
         if not rfid_uid:
@@ -670,7 +697,8 @@ class SmartParkingExitGate:
         print("  Pemicu Capture Plat:")
         print("    1. Sensor IR 1 (Sebelum Palang)")
         print("    2. Tekan tombol [SPASI] pada jendela kamera")
-        print("  Buka Manual: Tekan [M] atau Push Button (GPIO 27)")
+        print("  Buka Manual: Tekan [M] atau Push Button (ESP32)")
+        print(f"  Status ESP32: {'TERHUBUNG (' + str(self.hw.esp.port) + ')' if self.hw.is_connected else 'BELUM TERHUBUNG (MODE SIMULASI)'}")
         print("  Keluar: Tekan [Q] atau Ctrl + C")
         print("=" * 65 + "\n")
 
@@ -681,22 +709,18 @@ class SmartParkingExitGate:
             except Exception as e:
                 print(f"[WARN] Tidak dapat membuka window GUI OpenCV: {e}")
 
-        last_remote_check = 0.0
-
         try:
             while True:
-                current_frame = None
-                if self.cap and self.cap.isOpened():
-                    ret, current_frame = self.cap.read()
-
-                # 1. Siarkan frame terbaru ke Web Dashboard (Live Stream Server)
-                if current_frame is not None and self.stream_server:
-                    self.stream_server.update_frame(current_frame)
+                # 1. Ambil frame terbaru dari thread kamera
+                #    (thread kamera juga yang menyiarkan frame ke Web Dashboard / Live Stream Server)
+                current_frame = self.camera.read()
 
                 # 2. Tampilkan live feed pada jendela desktop jika preview aktif
                 key = -1
+                previewed = False
                 if getattr(config, 'SHOW_PREVIEW', True) and current_frame is not None:
-                    display_frame = current_frame.copy()
+                    previewed = True
+                    display_frame = self._fit_preview(current_frame)
                     h, w = display_frame.shape[:2]
 
                     # Overlay Header Bar
@@ -723,7 +747,7 @@ class SmartParkingExitGate:
                                 (15, h - 12), cv2.FONT_HERSHEY_SIMPLEX, 0.40, (200, 200, 200), 1)
 
                     cv2.imshow(window_name, display_frame)
-                    key = cv2.waitKey(25) & 0xFF
+                    key = self._wait_key(25)
 
                 # 3. Cek Pemicu: Spasi ditekan di Terminal VSCode / Jendela Kamera ATAU Sensor IR 1
                 ir_triggered = self.hw.is_vehicle_at_sensor1()
@@ -735,13 +759,13 @@ class SmartParkingExitGate:
                     print(f"\n[TRIGGER] Kendaraan terdeteksi via {trigger_src}!")
 
                     if getattr(config, 'SHOW_PREVIEW', True) and current_frame is not None:
-                        feedback = current_frame.copy()
+                        feedback = self._fit_preview(current_frame)
                         fh, fw = feedback.shape[:2]
                         cv2.rectangle(feedback, (0, 0), (fw, fh), (0, 255, 0), 4)
                         cv2.putText(feedback, "MEMOTRET & MEMPROSES PLAT NOMOR...", (25, fh // 2),
                                     cv2.FONT_HERSHEY_SIMPLEX, 0.7, (0, 255, 255), 2)
                         cv2.imshow(window_name, feedback)
-                        cv2.waitKey(150)
+                        self._show_for(0.15)
 
                     self.process_dual_verification(frame=current_frame)
 
@@ -760,15 +784,13 @@ class SmartParkingExitGate:
                 if scanned_rfid:
                     self.process_dual_verification(initial_rfid=scanned_rfid, frame=current_frame)
 
-                # 7. Pemicu Remote Web: Cek apakah ada perintah buka palang dari Web Dashboard via Supabase
-                now_t = time.time()
-                if now_t - last_remote_check >= 1.0:
-                    last_remote_check = now_t
-                    remote_cmd = self.db.get_pending_gate_command()
-                    if remote_cmd:
-                        self.handle_web_remote_override(remote_cmd)
+                # 7. Pemicu Remote Web: perintah buka palang dari dashboard lokal / Netlify
+                #    (dipantau thread sync di background, di sini hanya mengambil antrean tanpa menunggu)
+                remote_cmd = self.db.get_pending_gate_command()
+                if remote_cmd:
+                    self.handle_web_remote_override(remote_cmd)
 
-                if not getattr(config, 'SHOW_PREVIEW', True):
+                if not previewed:
                     time.sleep(0.04)
 
         except KeyboardInterrupt:
@@ -779,6 +801,7 @@ class SmartParkingExitGate:
     def cleanup(self):
         """Lepaskan seluruh resource hardware, kamera, dan stream server."""
         self.stop_terminal_listener = True
+        self.camera.stop()
         if self.stream_server:
             self.stream_server.stop()
         if getattr(config, 'SHOW_PREVIEW', True):
@@ -786,9 +809,8 @@ class SmartParkingExitGate:
                 cv2.destroyAllWindows()
             except Exception:
                 pass
-        if self.cap and self.cap.isOpened():
-            self.cap.release()
         self.hw.cleanup()
+        self.db.close()
         print("[OK] Sistem gerbang keluar dinonaktifkan dengan aman.")
 
 
@@ -805,7 +827,7 @@ def main():
         while True:
             frame = gate.capture_frame()
             if frame is not None:
-                cv2.imshow("Webcam USB Test (Exit Gate RPi 3B+)", frame)
+                cv2.imshow("Webcam USB Test (Exit Gate Mini PC)", self._fit_preview(frame))
                 if cv2.waitKey(1) & 0xFF == ord('q'):
                     break
         cv2.destroyAllWindows()

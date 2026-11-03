@@ -2,3 +2,6 @@ config.py
 supabase_config.js
 cloudflared.exe
 *.exe
+# Cache bytecode Python (dibuat otomatis)
+__pycache__/
+*.pyc
