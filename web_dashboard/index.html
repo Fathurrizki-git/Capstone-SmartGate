@@ -291,6 +291,10 @@ h1,h2,h3,p{margin:0}
 .da-stats{grid-area:stats}
 .da-log{grid-area:log}
 .da-alerts{grid-area:alerts}
+/* Grafik Trendline mengisi sisa tinggi kartu; SVG absolut agar tidak ikut menentukan tinggi baris */
+.da-trend{display:flex;flex-direction:column}
+.da-trend .chart{flex:1;min-height:280px}
+.da-trend .chart svg{position:absolute;inset:0}
 .g-sec{grid-template-columns:minmax(0,1fr) minmax(0,1.9fr)}
 
 .metric{display:flex;align-items:center;justify-content:space-between;padding:18px 20px}
@@ -383,7 +387,7 @@ h1,h2,h3,p{margin:0}
 .seg button:hover{color:#fff}
 .seg button.active{background:var(--blue);color:#fff}
 
-.stat-row{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:16px;margin-bottom:22px}
+.stat-row{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:16px;margin-bottom:22px}
 .stat-box{padding:14px 16px;border-radius:16px;background:rgba(26,31,55,.45)}
 .stat-box .k{font-size:12px;color:var(--graygray-400)}
 .stat-box .v{font-size:20px;font-weight:700;margin-top:2px}
@@ -411,9 +415,6 @@ h1,h2,h3,p{margin:0}
 @keyframes flash{0%{background:rgba(0,117,255,.35)}100%{background:transparent}}
 .table .empty td{text-align:center;color:var(--graygray-400);padding:40px 12px;cursor:default}
 .plate{display:inline-block;padding:3px 8px;border-radius:6px;background:#0d0d0d;border:1px solid #444;font-weight:700;letter-spacing:1px;font-size:13px}
-.pill{display:inline-block;padding:4px 10px;border-radius:99px;font-size:11px;font-weight:700}
-.pill.in{background:rgba(1,181,116,.15);color:#3ee6a4}
-.pill.out{background:rgba(0,117,255,.18);color:#5fa8ff}
 .conf{display:flex;flex-direction:column;gap:6px;min-width:130px}
 .conf .bar > i{background:linear-gradient(90deg,var(--blue),var(--cyan))}
 .conf.low span{color:var(--orange)}
@@ -497,7 +498,7 @@ body.modal-open{overflow:hidden}
 @media (max-width:1200px){
   .g-metrics{grid-template-columns:repeat(2,minmax(0,1fr))}
   .g-sec{grid-template-columns:minmax(0,1fr)}
-  .stat-row,.last-det{grid-template-columns:repeat(2,minmax(0,1fr))}
+  .last-det{grid-template-columns:repeat(2,minmax(0,1fr))}
 }
 @media (max-width:1024px){
   .sidebar{transform:translateX(calc(-100% - 20px))}
@@ -672,7 +673,7 @@ body.modal-open{overflow:hidden}
           </div>
           <div class="table-wrap">
             <table class="table">
-              <thead><tr><th>NO</th><th>TIME</th><th>NAME</th><th>LICENSE PLATE</th><th>CATEGORY</th><th>IN/OUT</th><th>CONFIDENCE</th></tr></thead>
+              <thead><tr><th>NO</th><th>DATE</th><th>TIME</th><th>NAME</th><th>LICENSE PLATE</th><th>CATEGORY</th><th>CONFIDENCE</th></tr></thead>
               <tbody id="dash-log"></tbody>
             </table>
           </div>
@@ -701,7 +702,6 @@ body.modal-open{overflow:hidden}
           </div>
         </div>
         <div class="stat-row">
-          <div class="stat-box"><div class="k">Total Masuk</div><div class="v up" id="t-in">0</div><div class="s">kendaraan IN</div></div>
           <div class="stat-box"><div class="k">Total Keluar</div><div class="v" style="color:#5fa8ff" id="t-out">0</div><div class="s">kendaraan OUT</div></div>
           <div class="stat-box"><div class="k">Puncak</div><div class="v" id="t-peak">0</div><div class="s" id="t-peak-at">-</div></div>
           <div class="stat-box"><div class="k">Rata-rata</div><div class="v" id="t-avg">0</div><div class="s" id="t-avg-unit">per interval</div></div>
@@ -729,11 +729,6 @@ body.modal-open{overflow:hidden}
             <option value="LECTURER">Lecturer</option>
             <option value="ACADEMIC COMMUNITY">Academic Community</option>
           </select>
-          <select class="select" id="vl-dir" aria-label="Filter arah">
-            <option value="ALL">IN &amp; OUT</option>
-            <option value="IN">IN saja</option>
-            <option value="OUT">OUT saja</option>
-          </select>
           <select class="select" id="vl-per" aria-label="Baris per halaman">
             <option value="10">10 / halaman</option>
             <option value="25">25 / halaman</option>
@@ -745,11 +740,11 @@ body.modal-open{overflow:hidden}
           <table class="table" id="vl-table">
             <thead><tr>
               <th data-sort="no">NO<span class="arr">&#9660;</span></th>
+              <th data-sort="date">DATE<span class="arr">&#9660;</span></th>
               <th data-sort="time">TIME<span class="arr">&#9660;</span></th>
               <th data-sort="name">NAME<span class="arr">&#9660;</span></th>
               <th data-sort="plate">LICENSE PLATE<span class="arr">&#9660;</span></th>
               <th data-sort="category">CATEGORY<span class="arr">&#9660;</span></th>
-              <th data-sort="dir">IN/OUT<span class="arr">&#9660;</span></th>
               <th data-sort="conf">CONFIDENCE<span class="arr">&#9660;</span></th>
             </tr></thead>
             <tbody id="vl-body"></tbody>
@@ -906,7 +901,7 @@ body.modal-open{overflow:hidden}
           <div class="last-det">
             <div class="stat-box"><div class="k">Plat Terakhir</div><div class="v" id="ld-plate">-</div></div>
             <div class="stat-box"><div class="k">Pemilik</div><div class="v" style="font-size:15px" id="ld-name">-</div></div>
-            <div class="stat-box"><div class="k">Arah</div><div class="v" id="ld-dir">-</div></div>
+            <div class="stat-box"><div class="k">Tanggal</div><div class="v" id="ld-date">-</div></div>
             <div class="stat-box"><div class="k">Waktu</div><div class="v" id="ld-time">-</div></div>
           </div>
         </div>
@@ -1150,6 +1145,7 @@ body.modal-open{overflow:hidden}
     h = h % 12 || 12;
     return d.getDate() + ' ' + MONTHS[d.getMonth()] + ' ' + h + ':' + pad2(d.getMinutes()) + ' ' + ap;
   }
+  function fmtDate(d) { return pad2(d.getDate()) + '/' + pad2(d.getMonth() + 1) + '/' + d.getFullYear(); }
   function fmtLongDate(d) { return DAYS_ID[d.getDay()] + ', ' + d.getDate() + ' ' + MONTHS_ID[d.getMonth()] + ' ' + d.getFullYear(); }
   function startOfDay(d) { var x = new Date(d); x.setHours(0, 0, 0, 0); return x; }
   function isToday(d) { return startOfDay(d).getTime() === startOfDay(new Date()).getTime(); }
@@ -1220,7 +1216,7 @@ body.modal-open{overflow:hidden}
     page: 1,
     perPage: 10,
     sort: { key: 'time', dir: 'desc' },
-    filters: { q: '', cat: 'ALL', dir: 'ALL' },
+    filters: { q: '', cat: 'ALL' },
     rvFilters: { q: '', cat: 'ALL', status: 'ALL' },
     alertFilter: 'all',
     route: null,
@@ -1426,8 +1422,6 @@ body.modal-open{overflow:hidden}
     var titleEl = $('#modal-title');
     if (titleEl) titleEl.textContent = 'Detail Kendaraan';
 
-    var lastLogForPlate = state.logs.filter(function (x) { return x.plate === l.plate; })[0];
-    var isInside = lastLogForPlate ? lastLogForPlate.dir === 'IN' : false;
     var history = state.logs.filter(function (x) { return x.plate === l.plate; }).length;
     openModal(
       '<div class="plate">' + esc(l.plate) + '</div>' +
@@ -1437,9 +1431,7 @@ body.modal-open{overflow:hidden}
       '<dt>NIM / NIP</dt><dd>' + esc(l.nim_nip || '-') + '</dd>' +
       '<dt>Status</dt><dd>' + (l.status === 'TERDAFTAR' ? '<span class="up">&#10003; TERDAFTAR</span>' : '<span style="color:var(--orange)">&#9888; BELUM TERDAFTAR</span>') + '</dd>' +
       '<dt>Waktu</dt><dd>' + esc(fmtLongDate(l.ts)) + ' &bull; ' + fmtHMS(l.ts) + ' WIB</dd>' +
-      '<dt>Arah</dt><dd><span class="pill ' + l.dir.toLowerCase() + '">' + l.dir + '</span></dd>' +
       '<dt>Confidence</dt><dd>' + l.conf + '%' + (l.conf < 80 ? ' <span style="color:var(--orange)">(perlu verifikasi)</span>' : '') + '</dd>' +
-      '<dt>Status saat ini</dt><dd>' + (isInside ? '<span class="up">Di dalam area parkir</span>' : '<span class="muted">Di luar area parkir</span>') + '</dd>' +
       '<dt>Total aktivitas</dt><dd>' + history + ' tercatat</dd>' +
       '</dl>'
     );
@@ -1499,7 +1491,6 @@ body.modal-open{overflow:hidden}
         (a.plate ? ('<dt>Plat Terdeteksi</dt><dd><span class="plate" style="font-size:14px;padding:3px 8px;margin:0">' + esc(a.plate) + '</span></dd>') : '') +
         (a.rfid ? ('<dt>RFID Di-Tap</dt><dd><code style="color:var(--cyan);font-size:13px">' + esc(a.rfid) + '</code></dd>') : '') +
         '<dt>Status Sistem</dt><dd><span style="color:' + (a.type === 'danger' ? '#ff8a8c' : a.type === 'warning' ? '#ffb547' : '#5fa8ff') + ';font-weight:600">' + esc(statusDesc) + '</span></dd>' +
-        '<dt>Arah Gerbang</dt><dd><span class="pill out">OUT (GERBANG KELUAR)</span></dd>' +
       '</dl>' +
 
       '<div style="display:flex;gap:8px;justify-content:flex-end;align-items:center;flex-wrap:wrap">' +
@@ -1621,6 +1612,16 @@ body.modal-open{overflow:hidden}
     charts[el.id] = opts;
     var labels = opts.labels, series = opts.series, tips = opts.tips || labels;
     var W = Math.max(el.clientWidth || 0, 300), H = opts.height || 300;
+    // opts.fill: tinggi grafik mengikuti tinggi kontainer (mis. kartu Trendline dashboard)
+    if (opts.fill && el.clientHeight > 0) H = el.clientHeight;
+    if (opts.fill && window.ResizeObserver && !el._fillObserver) {
+      // Tinggi kartu bisa berubah setelah digambar (mis. gambar maskot selesai dimuat) → gambar ulang
+      el._fillObserver = new ResizeObserver(debounce(function () {
+        if (el.offsetParent !== null && charts[el.id] && el.clientHeight !== el._drawnH) drawChart(el, charts[el.id]);
+      }, 100));
+      el._fillObserver.observe(el);
+    }
+    el._drawnH = H;
     var P = { l: 42, r: 14, t: 14, b: 30 };
     var iw = W - P.l - P.r, ih = H - P.t - P.b, n = labels.length;
     var vals = [];
@@ -1771,11 +1772,11 @@ body.modal-open{overflow:hidden}
     var low = l.conf < 80;
     return '<tr data-id="' + l.id + '"' + (state.newIds[l.id] ? ' class="new"' : '') + '>' +
       '<td>' + no + '</td>' +
+      '<td>' + fmtDate(l.ts) + '</td>' +
       '<td>' + fmtHM(l.ts) + ' WIB</td>' +
       '<td>' + esc(l.name) + '</td>' +
       '<td><span class="plate">' + esc(l.plate) + '</span></td>' +
       '<td>' + esc(l.category) + '</td>' +
-      '<td><span class="pill ' + l.dir.toLowerCase() + '">' + l.dir + '</span></td>' +
       '<td><div class="conf' + (low ? ' low' : '') + '"><span>' + l.conf + '%</span><div class="bar"><i style="width:' + l.conf + '%"></i></div></div></td>' +
       '</tr>';
   }
@@ -1840,7 +1841,7 @@ body.modal-open{overflow:hidden}
 
     // trend
     var td = trendData('1d');
-    drawChart($('#dash-chart'), { labels: td.labels, tips: td.tips, series: seriesOf(td), height: 280 });
+    drawChart($('#dash-chart'), { labels: td.labels, tips: td.tips, series: seriesOf(td), height: 280, fill: true });
 
     // categories
     var outs = tl.filter(function (l) { return l.dir !== 'IN'; });
@@ -1881,7 +1882,6 @@ body.modal-open{overflow:hidden}
       if (tot > peak) { peak = tot; peakAt = td.tips[i]; }
     });
     $('#trend-sub').textContent = td.sub;
-    $('#t-in').textContent = tIn;
     $('#t-out').textContent = tOut;
     $('#t-peak').textContent = Math.max(0, peak);
     $('#t-peak-at').textContent = peak > 0 ? peakAt : '-';
@@ -1895,15 +1895,15 @@ body.modal-open{overflow:hidden}
     var q = f.q.trim().toLowerCase(), qn = q.replace(/\s+/g, '');
     var rows = state.logs.filter(function (l) {
       if (f.cat !== 'ALL' && l.category !== f.cat) return false;
-      if (f.dir !== 'ALL' && l.dir !== f.dir) return false;
       if (q && l.name.toLowerCase().indexOf(q) === -1 && l.plate.toLowerCase().replace(/\s+/g, '').indexOf(qn) === -1) return false;
       return true;
     });
     var key = state.sort.key, m = state.sort.dir === 'asc' ? 1 : -1;
     var getter = {
-      no: function (l) { return l.id; }, time: function (l) { return l.ts.getTime(); },
+      no: function (l) { return l.id; }, date: function (l) { return startOfDay(l.ts).getTime(); },
+      time: function (l) { return l.ts.getTime(); },
       name: function (l) { return l.name.toLowerCase(); }, plate: function (l) { return l.plate; },
-      category: function (l) { return l.category; }, dir: function (l) { return l.dir; }, conf: function (l) { return l.conf; }
+      category: function (l) { return l.category; }, conf: function (l) { return l.conf; }
     }[key] || function (l) { return l.id; };
     rows.sort(function (a, b) {
       var x = getter(a), y = getter(b);
@@ -1956,7 +1956,6 @@ body.modal-open{overflow:hidden}
     // sinkronkan kontrol filter
     if ($('#vl-q').value !== state.filters.q) $('#vl-q').value = state.filters.q;
     $('#vl-cat').value = state.filters.cat;
-    $('#vl-dir').value = state.filters.dir;
     $('#vl-per').value = String(state.perPage);
   }
 
@@ -2043,19 +2042,19 @@ body.modal-open{overflow:hidden}
       if ($('#det-box')) $('#det-box').style.borderColor = 'var(--border)';
       if ($('#ld-plate')) $('#ld-plate').textContent = '-';
       if ($('#ld-name')) $('#ld-name').textContent = 'Belum ada kendaraan';
-      if ($('#ld-dir')) $('#ld-dir').innerHTML = '<span class="pill in">-</span>';
+      if ($('#ld-date')) $('#ld-date').textContent = '-';
       if ($('#ld-time')) $('#ld-time').textContent = '-';
       return;
     }
     if ($('#det-plate')) $('#det-plate').textContent = l.plate;
     if ($('#det-label')) {
-      $('#det-label').textContent = l.dir + ' \u2022 ' + l.conf + '%';
+      $('#det-label').textContent = l.conf + '%';
       $('#det-label').style.background = l.conf < 80 ? 'var(--orange)' : 'var(--green)';
     }
     if ($('#det-box')) $('#det-box').style.borderColor = l.conf < 80 ? 'var(--orange)' : 'var(--green)';
     if ($('#ld-plate')) $('#ld-plate').textContent = l.plate;
     if ($('#ld-name')) $('#ld-name').textContent = l.name;
-    if ($('#ld-dir')) $('#ld-dir').innerHTML = '<span class="pill ' + l.dir.toLowerCase() + '">' + l.dir + '</span>';
+    if ($('#ld-date')) $('#ld-date').textContent = fmtDate(l.ts);
     if ($('#ld-time')) $('#ld-time').textContent = fmtHM(l.ts);
   }
 
@@ -2554,10 +2553,10 @@ body.modal-open{overflow:hidden}
     var rows = filteredLogs();
     if (!rows.length) { toast('Tidak ada data untuk diekspor.', 'error'); return; }
     var cell = function (v) { v = String(v); return /[",\n;]/.test(v) ? '"' + v.replace(/"/g, '""') + '"' : v; };
-    var lines = [['No', 'Tanggal', 'Waktu', 'Nama', 'Plat Nomor', 'Kategori', 'NIM/NIP', 'Status', 'IN/OUT', 'Confidence (%)'].join(',')];
+    var lines = [['No', 'Tanggal', 'Waktu', 'Nama', 'Plat Nomor', 'Kategori', 'NIM/NIP', 'Status', 'Confidence (%)'].join(',')];
     rows.forEach(function (l, i) {
       var d = l.ts;
-      lines.push([i + 1, d.getFullYear() + '-' + pad2(d.getMonth() + 1) + '-' + pad2(d.getDate()), fmtHMS(d), l.name, l.plate, l.category, l.nim_nip || '-', l.status || 'TERDAFTAR', l.dir, l.conf].map(cell).join(','));
+      lines.push([i + 1, d.getFullYear() + '-' + pad2(d.getMonth() + 1) + '-' + pad2(d.getDate()), fmtHMS(d), l.name, l.plate, l.category, l.nim_nip || '-', l.status || 'TERDAFTAR', l.conf].map(cell).join(','));
     });
     var blob = new Blob(['\ufeff' + lines.join('\r\n')], { type: 'text/csv;charset=utf-8' });
     var n = new Date();
@@ -3115,10 +3114,9 @@ body.modal-open{overflow:hidden}
     var onQ = debounce(function () { state.filters.q = $('#vl-q').value; state.page = 1; renderVehicleLog(); }, 200);
     $('#vl-q').addEventListener('input', onQ);
     $('#vl-cat').addEventListener('change', function () { state.filters.cat = this.value; state.page = 1; renderVehicleLog(); });
-    $('#vl-dir').addEventListener('change', function () { state.filters.dir = this.value; state.page = 1; renderVehicleLog(); });
     $('#vl-per').addEventListener('change', function () { state.perPage = Number(this.value) || 10; state.page = 1; renderVehicleLog(); });
     $('#vl-reset').addEventListener('click', function () {
-      state.filters = { q: '', cat: 'ALL', dir: 'ALL' };
+      state.filters = { q: '', cat: 'ALL' };
       state.sort = { key: 'time', dir: 'desc' };
       state.page = 1;
       $('#vl-q').value = '';
@@ -3129,7 +3127,7 @@ body.modal-open{overflow:hidden}
       var go = function () {
         var k = th.dataset.sort;
         if (state.sort.key === k) state.sort.dir = state.sort.dir === 'asc' ? 'desc' : 'asc';
-        else state.sort = { key: k, dir: (k === 'time' || k === 'no' || k === 'conf') ? 'desc' : 'asc' };
+        else state.sort = { key: k, dir: (k === 'date' || k === 'time' || k === 'no' || k === 'conf') ? 'desc' : 'asc' };
         state.page = 1;
         renderVehicleLog();
       };
