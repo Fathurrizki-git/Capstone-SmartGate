@@ -275,7 +275,6 @@ h1,h2,h3,p{margin:0}
 .card-sub.green{color:var(--green)}
 .grid{display:grid;gap:24px;margin-bottom:24px}
 .g-metrics{grid-template-columns:repeat(4,minmax(0,1fr))}
-.g-2a{grid-template-columns:minmax(0,1.25fr) minmax(0,1fr)}
 .g-2b{grid-template-columns:minmax(0,1.7fr) minmax(0,1fr)}
 .g-2c{grid-template-columns:minmax(0,2fr) minmax(0,1fr)}
 .g-sec{grid-template-columns:minmax(0,1fr) minmax(0,1.9fr)}
@@ -346,16 +345,6 @@ h1,h2,h3,p{margin:0}
   object-fit:contain;
 }
 
-.capacity{display:flex;flex-direction:column}
-.cap-body{display:flex;align-items:center;gap:24px;flex:1;flex-wrap:wrap;justify-content:center}
-.gauge{position:relative;width:200px;height:200px;flex-shrink:0}
-.gauge svg{width:100%;height:100%}
-.g-track{fill:none;stroke:rgba(255,255,255,.07);stroke-width:14}
-.g-val{fill:none;stroke-width:14;stroke-linecap:round;transition:stroke-dashoffset .6s ease}
-.g-center{position:absolute;inset:0;display:flex;flex-direction:column;align-items:center;justify-content:center}
-.g-pct{font-size:34px;font-weight:700}
-.g-sub{font-size:12px;color:var(--graygray-400)}
-.cap-stats{display:flex;flex-direction:column;gap:12px;min-width:160px}
 .cap-stat{padding:12px 16px;border-radius:16px;background:linear-gradient(127deg,rgba(6,11,40,.94) 19%,rgba(10,14,35,.49) 76%);border:1px solid rgba(255,255,255,.05)}
 .cap-stat .k{font-size:12px;color:var(--graygray-400)}
 .cap-stat .v{font-size:18px;font-weight:700}
@@ -490,7 +479,7 @@ body.modal-open{overflow:hidden}
 }
 @media (max-width:1200px){
   .g-metrics{grid-template-columns:repeat(2,minmax(0,1fr))}
-  .g-2a,.g-sec{grid-template-columns:minmax(0,1fr)}
+  .g-sec{grid-template-columns:minmax(0,1fr)}
   .stat-row,.last-det{grid-template-columns:repeat(2,minmax(0,1fr))}
 }
 @media (max-width:1024px){
@@ -629,7 +618,7 @@ body.modal-open{overflow:hidden}
         <div class="card metric"><div><div class="m-label">Currently Parked</div><div class="m-val" id="m-parked">0</div></div><span class="m-ic" data-icon="parking" data-size="22"></span></div>
       </div>
 
-      <div class="grid g-2a">
+      <div class="grid">
         <div class="card welcome">
           <div class="welcome-content">
             <div>
@@ -647,19 +636,6 @@ body.modal-open{overflow:hidden}
           <div class="w-crodas-wrap">
             <div class="w-crodas-card">
               <img class="w-crodas" src="img/Crodas-1.png" alt="Maskot Crodas Untirta" onerror="this.onerror=null;this.src='img/crodas-1.png';">
-            </div>
-          </div>
-        </div>
-        <div class="card capacity">
-          <div class="card-head">
-            <div><div class="card-title">Parking Capacity</div><div class="card-sub">Kapasitas area parkir FT Untirta</div></div>
-          </div>
-          <div class="cap-body">
-            <div class="gauge" id="gauge"></div>
-            <div class="cap-stats">
-              <div class="cap-stat"><div class="k">Terisi</div><div class="v" id="cap-occ">0</div></div>
-              <div class="cap-stat"><div class="k">Tersedia</div><div class="v" id="cap-free">0</div></div>
-              <div class="cap-stat"><div class="k">Total Slot</div><div class="v" id="cap-total">0</div></div>
             </div>
           </div>
         </div>
@@ -1225,7 +1201,6 @@ body.modal-open{overflow:hidden}
   /* =========================================================
      DATA (100% dari Supabase vehicle_logs — tanpa data dummy)
      ========================================================= */
-  var CAPACITY = 100;
   var CATEGORIES = ['STUDENT', 'LECTURER', 'ACADEMIC COMMUNITY'];
   var CAT_COLORS = { 'STUDENT': '#0075ff', 'LECTURER': '#2cd9ff', 'ACADEMIC COMMUNITY': '#01b574' };
 
@@ -1304,7 +1279,7 @@ body.modal-open{overflow:hidden}
     var last = {}, inside = 0;
     state.logs.forEach(function (l) { if (!(l.plate in last)) last[l.plate] = l.dir; });
     for (var p in last) if (last[p] === 'IN') inside++;
-    return Math.min(CAPACITY, inside);
+    return inside;
   }
   function todayLogs() { return state.logs.filter(function (l) { return isToday(l.ts); }); }
   function unreadCount() { return state.alerts.filter(function (a) { return !a.read; }).length; }
@@ -1863,20 +1838,8 @@ body.modal-open{overflow:hidden}
     $('#m-total').textContent = tl.length;
     $('#m-in').innerHTML = nIn + ' <small class="up">' + (tl.length ? Math.round(nIn / tl.length * 100) : 0) + '%</small>';
     $('#m-out').innerHTML = (tl.length - nIn) + ' <small style="color:#5fa8ff">' + (tl.length ? Math.round((tl.length - nIn) / tl.length * 100) : 0) + '%</small>';
-    $('#m-parked').innerHTML = occ + ' <small class="' + (occ / CAPACITY >= 0.9 ? 'down' : 'up') + '">/ ' + CAPACITY + '</small>';
+    $('#m-parked').textContent = occ;
     $('#dash-total').textContent = tl.length;
-
-    // gauge
-    var pct = Math.round(occ / CAPACITY * 100), r = 80, c = 2 * Math.PI * r;
-    var col = pct >= 90 ? ['#ff383c', '#ff8a8c'] : pct >= 75 ? ['#ffb547', '#ffd88a'] : ['#0075ff', '#2cd9ff'];
-    $('#gauge').innerHTML =
-      '<svg viewBox="0 0 200 200" aria-hidden="true"><defs><linearGradient id="gaugeGrad" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="' + col[0] + '"/><stop offset="1" stop-color="' + col[1] + '"/></linearGradient></defs>' +
-      '<circle class="g-track" cx="100" cy="100" r="' + r + '"/>' +
-      '<circle class="g-val" cx="100" cy="100" r="' + r + '" stroke="url(#gaugeGrad)" stroke-dasharray="' + c.toFixed(2) + '" stroke-dashoffset="' + (c * (1 - pct / 100)).toFixed(2) + '" transform="rotate(-90 100 100)"/></svg>' +
-      '<div class="g-center"><div class="g-pct">' + pct + '%</div><div class="g-sub">terisi</div></div>';
-    $('#cap-occ').textContent = occ;
-    $('#cap-free').textContent = CAPACITY - occ;
-    $('#cap-total').textContent = CAPACITY;
 
     // trend
     var td = trendData('1d');

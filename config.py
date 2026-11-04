@@ -79,5 +79,5 @@ STREAM_PORT = 5050                          # Port dashboard lokal + kamera (htt
 STREAM_WIDTH = 960                          # Lebar frame stream (1080p diperkecil). Lebih kecil = lebih ringan & cepat
 STREAM_JPEG_QUALITY = 70                    # Kualitas JPEG stream (50-80). Lebih rendah = ukuran kecil, latensi turun
 STREAM_MAX_FPS = 30                         # Batas fps stream (0 = ikuti fps kamera)
-CLOUDFLARE_TUNNEL_ENABLED = False           # False = dashboard lokal saja (disarankan, latensi terendah)
+CLOUDFLARE_TUNNEL_ENABLED = True           # False = dashboard lokal saja (disarankan, latensi terendah)
                                             # True  = buat URL HTTPS publik (dashboard Netlify / akses luar jaringan)
