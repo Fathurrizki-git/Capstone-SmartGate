@@ -657,7 +657,7 @@ body.modal-open{overflow:hidden}
         <div class="card da-trend">
           <div class="card-head">
             <div><div class="card-title">Trendline</div><div class="card-sub">Kendaraan per jam hari ini</div></div>
-            <div class="legend"><span><i class="dot" style="background:#2cd9ff"></i>Vehicles In</span><span><i class="dot" style="background:#0075ff"></i>Vehicles Out</span></div>
+            <div class="legend"><span><i class="dot" style="background:#0075ff"></i>Vehicles Out</span></div>
           </div>
           <div class="chart" id="dash-chart"></div>
         </div>
@@ -706,7 +706,7 @@ body.modal-open{overflow:hidden}
           <div class="stat-box"><div class="k">Puncak</div><div class="v" id="t-peak">0</div><div class="s" id="t-peak-at">-</div></div>
           <div class="stat-box"><div class="k">Rata-rata</div><div class="v" id="t-avg">0</div><div class="s" id="t-avg-unit">per interval</div></div>
         </div>
-        <div class="legend" style="margin-bottom:10px"><span><i class="dot" style="background:#2cd9ff"></i>Vehicles In</span><span><i class="dot" style="background:#0075ff"></i>Vehicles Out</span></div>
+        <div class="legend" style="margin-bottom:10px"><span><i class="dot" style="background:#0075ff"></i>Vehicles Out</span></div>
         <div class="chart" id="trend-chart"></div>
       </div>
     </section>
@@ -1709,22 +1709,23 @@ body.modal-open{overflow:hidden}
     });
   }
 
+  // Data grafik: jumlah kendaraan keluar (gerbang keluar saja)
+  function isOut(l) { return l.dir !== 'IN'; }
   function trendData(range) {
-    var now = new Date(), labels = [], tips = [], inD = [], outD = [], i;
+    var now = new Date(), labels = [], tips = [], outD = [], i;
     if (range === '1h') {
       var startT = now.getTime() - 60 * 60e3;
       for (i = 0; i < 12; i++) {
         var b0 = new Date(startT + i * 5 * 60e3), b1 = new Date(b0.getTime() + 5 * 60e3);
         labels.push(fmtHM(b0)); tips.push(fmtHM(b0) + ' – ' + fmtHM(b1));
-        inD.push(0); outD.push(0);
+        outD.push(0);
       }
       state.logs.forEach(function (l) {
         var t = l.ts.getTime();
-        if (t < startT || t > now.getTime()) return;
-        var idx = Math.min(11, Math.floor((t - startT) / (5 * 60e3)));
-        if (l.dir === 'IN') inD[idx]++; else outD[idx]++;
+        if (!isOut(l) || t < startT || t > now.getTime()) return;
+        outD[Math.min(11, Math.floor((t - startT) / (5 * 60e3)))]++;
       });
-      return { labels: labels, tips: tips, inD: inD, outD: outD, unit: 'per 5 menit', sub: '60 menit terakhir (interval 5 menit)' };
+      return { labels: labels, tips: tips, outD: outD, unit: 'per 5 menit', sub: '60 menit terakhir (interval 5 menit)' };
     }
     if (range === '1m') {
       for (i = 29; i >= 0; i--) {
@@ -1733,36 +1734,28 @@ body.modal-open{overflow:hidden}
         var dayEnd = dayStart + 86400000;
         labels.push(d.getDate() + ' ' + MONTHS[d.getMonth()]);
         tips.push(fmtLongDate(d));
-        var countIn = 0, countOut = 0;
-        state.logs.forEach(function (l) {
+        outD.push(state.logs.filter(function (l) {
           var t = l.ts.getTime();
-          if (t >= dayStart && t < dayEnd) {
-            if (l.dir === 'IN') countIn++; else countOut++;
-          }
-        });
-        inD.push(countIn);
-        outD.push(countOut);
+          return isOut(l) && t >= dayStart && t < dayEnd;
+        }).length);
       }
-      return { labels: labels, tips: tips, inD: inD, outD: outD, unit: 'per hari', sub: '30 hari terakhir' };
+      return { labels: labels, tips: tips, outD: outD, unit: 'per hari', sub: '30 hari terakhir' };
     }
     // 1 day: per jam hari ini
     var curH = now.getHours();
     for (i = 0; i < 24; i++) {
       labels.push(pad2(i) + ':00'); tips.push(pad2(i) + ':00 – ' + pad2(i) + ':59');
-      inD.push(i <= curH ? 0 : null); outD.push(i <= curH ? 0 : null);
+      outD.push(i <= curH ? 0 : null);
     }
     todayLogs().forEach(function (l) {
       var h = l.ts.getHours();
-      if (inD[h] == null) return;
-      if (l.dir === 'IN') inD[h]++; else outD[h]++;
+      if (!isOut(l) || outD[h] == null) return;
+      outD[h]++;
     });
-    return { labels: labels, tips: tips, inD: inD, outD: outD, unit: 'per jam', sub: 'Hari ini, ' + fmtLongDate(now) + ' (per jam)' };
+    return { labels: labels, tips: tips, outD: outD, unit: 'per jam', sub: 'Hari ini, ' + fmtLongDate(now) + ' (per jam)' };
   }
   function seriesOf(td) {
-    return [
-      { name: 'Vehicles In', color: '#2cd9ff', data: td.inD },
-      { name: 'Vehicles Out', color: '#0075ff', data: td.outD }
-    ];
+    return [{ name: 'Vehicles Out', color: '#0075ff', data: td.outD }];
   }
 
   /* =========================================================
@@ -1835,7 +1828,7 @@ body.modal-open{overflow:hidden}
      ========================================================= */
   function renderDashboard() {
     var tl = todayLogs();
-    var nOut = tl.filter(function (l) { return l.dir !== 'IN'; }).length;
+    var nOut = tl.filter(isOut).length;
     $('#m-out').textContent = nOut;
     $('#dash-total').textContent = tl.length;
 
@@ -1844,7 +1837,7 @@ body.modal-open{overflow:hidden}
     drawChart($('#dash-chart'), { labels: td.labels, tips: td.tips, series: seriesOf(td), height: 280, fill: true });
 
     // categories
-    var outs = tl.filter(function (l) { return l.dir !== 'IN'; });
+    var outs = tl.filter(isOut);
     $('#cat-list').innerHTML = CATEGORIES.map(function (cat) {
       var n = outs.filter(function (l) { return l.category === cat; }).length;
       var p = outs.length ? Math.round(n / outs.length * 100) : 0;
@@ -1873,19 +1866,18 @@ body.modal-open{overflow:hidden}
     });
     var td = trendData(state.range);
     var sum = function (a) { return a.reduce(function (s, v) { return s + (v || 0); }, 0); };
-    var tIn = sum(td.inD), tOut = sum(td.outD);
+    var tOut = sum(td.outD);
     var peak = -1, peakAt = '-', count = 0;
-    td.inD.forEach(function (v, i) {
+    td.outD.forEach(function (v, i) {
       if (v == null) return;
       count++;
-      var tot = v + (td.outD[i] || 0);
-      if (tot > peak) { peak = tot; peakAt = td.tips[i]; }
+      if (v > peak) { peak = v; peakAt = td.tips[i]; }
     });
     $('#trend-sub').textContent = td.sub;
     $('#t-out').textContent = tOut;
     $('#t-peak').textContent = Math.max(0, peak);
     $('#t-peak-at').textContent = peak > 0 ? peakAt : '-';
-    $('#t-avg').textContent = count ? ((tIn + tOut) / count).toFixed(1) : '0';
+    $('#t-avg').textContent = count ? (tOut / count).toFixed(1) : '0';
     $('#t-avg-unit').textContent = 'kendaraan ' + td.unit;
     drawChart($('#trend-chart'), { labels: td.labels, tips: td.tips, series: seriesOf(td), height: Math.max(320, Math.min(560, window.innerHeight - 380)) });
   }
