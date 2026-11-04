@@ -275,6 +275,7 @@ h1,h2,h3,p{margin:0}
 .card-sub.green{color:var(--green)}
 .grid{display:grid;gap:24px;margin-bottom:24px}
 .g-metrics{grid-template-columns:repeat(4,minmax(0,1fr))}
+.g-metrics-2{grid-template-columns:repeat(2,minmax(0,1fr))}
 .g-2b{grid-template-columns:minmax(0,1.7fr) minmax(0,1fr)}
 .g-2c{grid-template-columns:minmax(0,2fr) minmax(0,1fr)}
 .g-sec{grid-template-columns:minmax(0,1fr) minmax(0,1.9fr)}
@@ -611,11 +612,9 @@ body.modal-open{overflow:hidden}
 
     <!-- ================= DASHBOARD ================= -->
     <section class="view" data-view="dashboard" hidden>
-      <div class="grid g-metrics">
+      <div class="grid g-metrics g-metrics-2">
         <div class="card metric"><div><div class="m-label">Total Vehicle Today</div><div class="m-val" id="m-total">0</div></div><span class="m-ic" data-icon="car" data-size="22"></span></div>
-        <div class="card metric"><div><div class="m-label">Vehicles In</div><div class="m-val" id="m-in">0</div></div><span class="m-ic" data-icon="arrowIn" data-size="22"></span></div>
         <div class="card metric"><div><div class="m-label">Vehicles Out</div><div class="m-val" id="m-out">0</div></div><span class="m-ic" data-icon="arrowOut" data-size="22"></span></div>
-        <div class="card metric"><div><div class="m-label">Currently Parked</div><div class="m-val" id="m-parked">0</div></div><span class="m-ic" data-icon="parking" data-size="22"></span></div>
       </div>
 
       <div class="grid">
@@ -1170,7 +1169,6 @@ body.modal-open{overflow:hidden}
     check: '<path d="m5 12 5 5L20 7"/>',
     checkCircle: '<circle cx="12" cy="12" r="9"/><path d="m8 12 3 3 5-6"/>',
     camera: '<path d="m22 8-6 4 6 4z"/><rect x="2" y="6" width="14" height="12" rx="2"/>',
-    arrowIn: '<path d="M12 4v14m0 0-6-6m6 6 6-6"/><path d="M5 21h14"/>',
     arrowOut: '<path d="M12 18V4m0 0L6 10m6-6 6 6"/><path d="M5 21h14"/>',
     clock: '<circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 2"/>',
     parking: '<rect x="3" y="3" width="18" height="18" rx="4"/><path d="M9 17V7h4a3 3 0 0 1 0 6H9"/>',
@@ -1274,13 +1272,6 @@ body.modal-open{overflow:hidden}
     state.alerts = all.filter(function (a) { return !alertMeta.dismissed[a.id]; });
   }
 
-  // Kendaraan dihitung "di dalam" jika log terakhir platnya berarah IN
-  function occupancy() {
-    var last = {}, inside = 0;
-    state.logs.forEach(function (l) { if (!(l.plate in last)) last[l.plate] = l.dir; });
-    for (var p in last) if (last[p] === 'IN') inside++;
-    return inside;
-  }
   function todayLogs() { return state.logs.filter(function (l) { return isToday(l.ts); }); }
   function unreadCount() { return state.alerts.filter(function (a) { return !a.read; }).length; }
 
@@ -1833,12 +1824,9 @@ body.modal-open{overflow:hidden}
      ========================================================= */
   function renderDashboard() {
     var tl = todayLogs();
-    var nIn = tl.filter(function (l) { return l.dir === 'IN'; }).length;
-    var occ = occupancy();
+    var nOut = tl.filter(function (l) { return l.dir !== 'IN'; }).length;
     $('#m-total').textContent = tl.length;
-    $('#m-in').innerHTML = nIn + ' <small class="up">' + (tl.length ? Math.round(nIn / tl.length * 100) : 0) + '%</small>';
-    $('#m-out').innerHTML = (tl.length - nIn) + ' <small style="color:#5fa8ff">' + (tl.length ? Math.round((tl.length - nIn) / tl.length * 100) : 0) + '%</small>';
-    $('#m-parked').textContent = occ;
+    $('#m-out').innerHTML = nOut + ' <small style="color:#5fa8ff">' + (tl.length ? Math.round(nOut / tl.length * 100) : 0) + '%</small>';
     $('#dash-total').textContent = tl.length;
 
     // trend
