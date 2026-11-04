@@ -275,9 +275,22 @@ h1,h2,h3,p{margin:0}
 .card-sub.green{color:var(--green)}
 .grid{display:grid;gap:24px;margin-bottom:24px}
 .g-metrics{grid-template-columns:repeat(4,minmax(0,1fr))}
-.g-metrics-2{grid-template-columns:repeat(2,minmax(0,1fr))}
-.g-2b{grid-template-columns:minmax(0,1.7fr) minmax(0,1fr)}
-.g-2c{grid-template-columns:minmax(0,2fr) minmax(0,1fr)}
+/* Dashboard: grid 2 kolom berbasis area agar tinggi baris kiri & kanan sejajar */
+.dash-layout{
+  grid-template-columns:minmax(0,1fr) minmax(0,1fr);
+  grid-template-areas:
+    "welcome out"
+    "welcome trend"
+    "stats   trend"
+    "log     alerts";
+  align-items:stretch;
+}
+.da-welcome{grid-area:welcome}
+.da-out{grid-area:out}
+.da-trend{grid-area:trend}
+.da-stats{grid-area:stats}
+.da-log{grid-area:log}
+.da-alerts{grid-area:alerts}
 .g-sec{grid-template-columns:minmax(0,1fr) minmax(0,1.9fr)}
 
 .metric{display:flex;align-items:center;justify-content:space-between;padding:18px 20px}
@@ -476,7 +489,10 @@ body.modal-open{overflow:hidden}
    RESPONSIVE
    ========================================================== */
 @media (max-width:1400px){
-  .g-2b,.g-2c{grid-template-columns:minmax(0,1fr)}
+  .dash-layout{
+    grid-template-columns:minmax(0,1fr);
+    grid-template-areas:"welcome" "out" "trend" "stats" "log" "alerts";
+  }
 }
 @media (max-width:1200px){
   .g-metrics{grid-template-columns:repeat(2,minmax(0,1fr))}
@@ -612,13 +628,11 @@ body.modal-open{overflow:hidden}
 
     <!-- ================= DASHBOARD ================= -->
     <section class="view" data-view="dashboard" hidden>
-      <div class="grid g-metrics g-metrics-2">
-        <div class="card metric"><div><div class="m-label">Total Vehicle Today</div><div class="m-val" id="m-total">0</div></div><span class="m-ic" data-icon="car" data-size="22"></span></div>
-        <div class="card metric"><div><div class="m-label">Vehicles Out</div><div class="m-val" id="m-out">0</div></div><span class="m-ic" data-icon="arrowOut" data-size="22"></span></div>
-      </div>
+      <!-- Tata letak 2 kolom: kiri = Welcome, Statistik, Vehicle Log; kanan = Vehicles Out, Trendline, Security -->
+      <div class="grid dash-layout">
+        <div class="card metric da-out"><div><div class="m-label">Vehicles Out</div><div class="m-val" id="m-out">0</div></div><span class="m-ic" data-icon="arrowOut" data-size="22"></span></div>
 
-      <div class="grid">
-        <div class="card welcome">
+        <div class="card welcome da-welcome">
           <div class="welcome-content">
             <div>
               <div class="w-sub">Welcome back,</div>
@@ -638,24 +652,20 @@ body.modal-open{overflow:hidden}
             </div>
           </div>
         </div>
-      </div>
 
-      <div class="grid g-2b">
-        <div class="card">
+        <div class="card da-trend">
           <div class="card-head">
             <div><div class="card-title">Trendline</div><div class="card-sub">Kendaraan per jam hari ini</div></div>
             <div class="legend"><span><i class="dot" style="background:#2cd9ff"></i>Vehicles In</span><span><i class="dot" style="background:#0075ff"></i>Vehicles Out</span></div>
           </div>
           <div class="chart" id="dash-chart"></div>
         </div>
-        <div class="card">
-          <div class="card-head"><div><div class="card-title">Vehicle Statistics</div><div class="card-sub">Kendaraan masuk per kategori (hari ini)</div></div></div>
+        <div class="card da-stats">
+          <div class="card-head"><div><div class="card-title">Vehicle Out Statistics</div><div class="card-sub">Kendaraan keluar per kategori (hari ini)</div></div></div>
           <div class="cat-list" id="cat-list"></div>
         </div>
-      </div>
 
-      <div class="grid g-2c">
-        <div class="card">
+        <div class="card da-log">
           <div class="card-head">
             <div><div class="card-title">Vehicle Log</div><div class="card-sub"><img src="img/circle.svg" width="15" height="15" alt="" class="ic" style="vertical-align:middle" onerror="this.outerHTML='<span data-icon=\'checkCircle\' data-size=\'15\' class=\'up\'></span>'"><span>Total <b id="dash-total">0</b> Vehicle Today</span></div></div>
             <a href="/vehicle-log" data-route="vehicle-log" class="btn btn-ghost">Lihat semua</a>
@@ -667,7 +677,7 @@ body.modal-open{overflow:hidden}
             </table>
           </div>
         </div>
-        <div class="card">
+        <div class="card da-alerts">
           <div class="card-head">
             <div><div class="card-title">Security Notification</div><div class="card-sub js-alert-sub"></div></div>
           </div>
@@ -1825,8 +1835,7 @@ body.modal-open{overflow:hidden}
   function renderDashboard() {
     var tl = todayLogs();
     var nOut = tl.filter(function (l) { return l.dir !== 'IN'; }).length;
-    $('#m-total').textContent = tl.length;
-    $('#m-out').innerHTML = nOut + ' <small style="color:#5fa8ff">' + (tl.length ? Math.round(nOut / tl.length * 100) : 0) + '%</small>';
+    $('#m-out').textContent = nOut;
     $('#dash-total').textContent = tl.length;
 
     // trend
@@ -1834,10 +1843,10 @@ body.modal-open{overflow:hidden}
     drawChart($('#dash-chart'), { labels: td.labels, tips: td.tips, series: seriesOf(td), height: 280 });
 
     // categories
-    var ins = tl.filter(function (l) { return l.dir === 'IN'; });
+    var outs = tl.filter(function (l) { return l.dir !== 'IN'; });
     $('#cat-list').innerHTML = CATEGORIES.map(function (cat) {
-      var n = ins.filter(function (l) { return l.category === cat; }).length;
-      var p = ins.length ? Math.round(n / ins.length * 100) : 0;
+      var n = outs.filter(function (l) { return l.category === cat; }).length;
+      var p = outs.length ? Math.round(n / outs.length * 100) : 0;
       return '<div class="cat-item"><div class="ci-top"><span>' + esc(titleCase(cat)) + '</span><span>' + n + ' &bull; ' + p + '%</span></div>' +
         '<div class="bar"><i style="width:' + p + '%;background:' + CAT_COLORS[cat] + '"></i></div></div>';
     }).join('') +
