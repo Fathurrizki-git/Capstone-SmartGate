@@ -134,16 +134,58 @@ void updateServo() {
 
 // ── LCD ──────────────────────────────────────────
 LiquidCrystal_I2C *lcd = nullptr;
-String lcdLines[LCD_ROWS];   // Isi terakhir yang diminta Mini PC
-bool   lcdOverlay = false;   // true saat layar menampilkan peringatan "Mini PC offline"
+String   lcdLines[LCD_ROWS];   // Isi terakhir yang diminta Mini PC
+bool     lcdOverlay = false;   // true saat layar menampilkan peringatan "Mini PC offline"
+uint32_t lastLcdRetryMs = 0;
+const uint32_t LCD_RETRY_MS = 3000;
 
-uint8_t detectLcdAddress() {
-  const uint8_t candidates[] = {0x27, 0x3F};
+uint8_t scanI2cLcdAddress() {
+  // Prioritaskan alamat umum PCF8574 (0x20-0x27) & PCF8574A (0x38-0x3F)
+  const uint8_t candidates[] = {
+    0x27, 0x3F,
+    0x20, 0x21, 0x22, 0x23, 0x24, 0x25, 0x26,
+    0x38, 0x39, 0x3A, 0x3B, 0x3C, 0x3D, 0x3E
+  };
   for (uint8_t addr : candidates) {
     Wire.beginTransmission(addr);
     if (Wire.endTransmission() == 0) return addr;
   }
   return 0;
+}
+
+uint8_t detectLcdAddress() {
+  Wire.begin(PIN_SDA, PIN_SCL);
+  uint8_t addr = scanI2cLcdAddress();
+  if (addr) return addr;
+
+  // Fallback otomatis jika kabel jumper SDA (21) dan SCL (22) tertukar
+  Wire.end();
+  Wire.begin(PIN_SCL, PIN_SDA);
+  addr = scanI2cLcdAddress();
+  if (addr) {
+    Serial.println("ERR:LCD_SDA_SCL_TERTUKAR_AUTO_FIX");
+    return addr;
+  }
+
+  // Kembalikan ke pin standar
+  Wire.end();
+  Wire.begin(PIN_SDA, PIN_SCL);
+  return 0;
+}
+
+void lcdRedrawAll();
+
+bool tryInitLcd() {
+  if (lcd) return true;
+  uint8_t lcdAddr = detectLcdAddress();
+  if (!lcdAddr) return false;
+
+  lcd = new LiquidCrystal_I2C(lcdAddr, LCD_COLS, LCD_ROWS);
+  lcd->begin();
+  lcd->backlight();
+  lcdRedrawAll();
+  Serial.printf("READY:LCD_OK_0x%02X\n", lcdAddr);
+  return true;
 }
 
 String padLine(const String &s) {
@@ -263,18 +305,14 @@ void setup() {
   ESP32PWM::allocateTimer(0);
   gateServo.setPeriodHertz(50);
 
-  Wire.begin(PIN_SDA, PIN_SCL);
-  uint8_t lcdAddr = detectLcdAddress();
-  if (lcdAddr) {
-    lcd = new LiquidCrystal_I2C(lcdAddr, LCD_COLS, LCD_ROWS);
-    lcd->init();
-    lcd->backlight();
-  }
   lcdLines[0] = padLine(" GERBANG KELUAR FT  ");
   lcdLines[1] = padLine("  UNTIRTA CILEGON   ");
   lcdLines[2] = padLine("MENUNGGU MINI PC... ");
   lcdLines[3] = padLine("");
-  lcdRedrawAll();
+
+  delay(100);  // Beri waktu catu daya 5V modul I2C LCD stabil saat baru dicolok
+  tryInitLcd();
+  lastLcdRetryMs = millis();
 
   irBefore.stable = irBefore.lastRaw = digitalRead(PIN_IR_BEFORE) == LOW;
   irAfter.stable  = irAfter.lastRaw  = digitalRead(PIN_IR_AFTER) == LOW;
@@ -295,6 +333,12 @@ void loop() {
   updateBuzzer();
   updateServo();
   checkPcTimeout();
+
+  // Jika LCD belum terdeteksi saat boot (misal kabel jumper longgar), coba deteksi ulang tiap 3 detik
+  if (!lcd && millis() - lastLcdRetryMs >= LCD_RETRY_MS) {
+    lastLcdRetryMs = millis();
+    tryInitLcd();
+  }
 
   if (millis() - lastHeartbeat >= HEARTBEAT_MS) {
     lastHeartbeat = millis();

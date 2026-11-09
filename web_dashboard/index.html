@@ -762,24 +762,18 @@ body.modal-open{overflow:hidden}
       <!-- Banner Portal Pendaftaran Mandiri (Opsi 1) & Quick Register Pos Satpam (Opsi 3) -->
       <div class="gate-control-card" style="background:linear-gradient(128deg,rgba(4,28,45,.92) 0%,rgba(10,18,52,.9) 100%);border-color:rgba(44,217,255,.35)">
         <div class="gcc-info">
-          <div class="gcc-icon" style="background:rgba(44,217,255,.18);color:var(--cyan)">
-            <span data-icon="user" data-size="22"></span>
-          </div>
           <div>
-            <div class="gcc-title">Skema Registrasi Cepat Civitas Akademika (&lt; 1 Menit)</div>
-            <div class="gcc-sub">Bagikan kartu RFID kosong ke civitas: daftar mandiri via <b>QR Code (/register) + Auto-Bind di Gerbang</b>, atau <b>Quick-Register</b> langsung oleh petugas.</div>
+            <div class="gcc-title">Fast Registration</div>
+            <div class="gcc-sub">Daftar mandiri untuk mahasiswa/civitas akademika di bawah 1 menit.</div>
           </div>
         </div>
         <div class="gcc-actions">
           <button type="button" class="btn btn-ghost" id="btn-open-qr-modal" style="border:1px solid rgba(44,217,255,.4);color:var(--cyan)">
-            <span>📱 QR Code Portal Mandiri</span>
+            <span>QR Code Fast Registration</span>
           </button>
-          <a href="/register" target="_blank" class="btn btn-ghost" style="border:1px solid rgba(255,255,255,.15)">
-            <span>🔗 Buka /register</span>
+          <a href="/register" target="_blank" rel="noopener" class="btn btn-primary">
+            <span>Fast Registration Form</span>
           </a>
-          <button type="button" class="btn btn-primary" id="btn-open-quick-reg">
-            <span>⚡ + Quick Register Civitas</span>
-          </button>
         </div>
       </div>
 
@@ -1986,7 +1980,7 @@ body.modal-open{overflow:hidden}
     if (!tbody) return;
 
     if (!filtered.length) {
-      tbody.innerHTML = '<tr class="empty"><td colspan="7">Belum ada data kendaraan civitas yang cocok. Klik <b>+ Quick Register Civitas</b> atau bagikan <b>QR Code (/register)</b>.</td></tr>';
+      tbody.innerHTML = '<tr class="empty"><td colspan="7">Belum ada data kendaraan civitas yang cocok. Klik <b>Fast Registration Form</b> atau bagikan <b>QR Code Fast Registration</b>.</td></tr>';
     } else {
       tbody.innerHTML = filtered.map(function (v, idx) {
         var rfidBadge = v.hasRfid
@@ -3226,7 +3220,7 @@ body.modal-open{overflow:hidden}
     }
 
     // Quick-Register Buttons & Modal
-    ['#btn-sec-quick-reg', '#btn-open-quick-reg', '#sb-btn-quickreg'].forEach(function (sel) {
+    ['#btn-sec-quick-reg', '#sb-btn-quickreg'].forEach(function (sel) {
       var b = $(sel);
       if (b) {
         b.addEventListener('click', function () {
