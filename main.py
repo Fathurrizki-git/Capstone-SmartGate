@@ -66,7 +66,6 @@ class SmartParkingExitGate:
         if getattr(config, 'STREAM_ENABLED', True):
             self.stream_server = VideoStreamServer(
                 port=getattr(config, 'STREAM_PORT', 5050),
-                enable_tunnel=getattr(config, 'CLOUDFLARE_TUNNEL_ENABLED', True),
                 width=getattr(config, 'STREAM_WIDTH', 640),
                 quality=getattr(config, 'STREAM_JPEG_QUALITY', 60),
                 max_fps=getattr(config, 'STREAM_MAX_FPS', 0),
@@ -107,8 +106,10 @@ class SmartParkingExitGate:
         """
         Membaca tombol keyboard (Spasi, M, Q) langsung di Terminal VSCode.
         Ketikan RFID USB (mode keyboard) yang masuk ke terminal diteruskan ke buffer RFID.
+        Di Linux/macOS dialihkan ke _start_terminal_listener_posix() (terminal SSH).
         """
         if not sys.platform.startswith('win'):
+            self._start_terminal_listener_posix()
             return
 
         def _terminal_loop():
@@ -130,6 +131,61 @@ class SmartParkingExitGate:
                             self.terminal_quit = True
                             break
                     time.sleep(0.04)
+                except Exception:
+                    break
+
+        t = threading.Thread(target=_terminal_loop, daemon=True)
+        t.start()
+
+    def _start_terminal_listener_posix(self):
+        """
+        Versi Linux/macOS: membaca tombol SPASI/ENTER, M, Q dari terminal (mis. sesi SSH ke Mini PC).
+        Hanya aktif jika stdin adalah TTY — saat berjalan sebagai service systemd langsung dilewati.
+        Ketikan TIDAK diteruskan ke buffer RFID (di Linux RFID USB dibaca lewat evdev).
+        """
+        try:
+            if sys.stdin is None or not sys.stdin.isatty():
+                return
+            import termios
+            import tty
+            import select
+            import atexit
+            fd = sys.stdin.fileno()
+            old_settings = termios.tcgetattr(fd)
+        except Exception:
+            return
+
+        def _restore_terminal():
+            try:
+                termios.tcsetattr(fd, termios.TCSADRAIN, old_settings)
+            except Exception:
+                pass
+
+        self._restore_terminal = _restore_terminal
+        atexit.register(_restore_terminal)
+
+        try:
+            tty.setcbreak(fd)  # Baca per karakter tanpa ENTER; ISIG tetap aktif sehingga Ctrl+C berfungsi
+        except Exception as e:
+            print(f"[WARN] Tidak dapat mengaktifkan input tombol terminal: {e}")
+            return
+
+        def _terminal_loop():
+            while not self.stop_terminal_listener:
+                try:
+                    ready, _, _ = select.select([fd], [], [], 0.1)
+                    if not ready:
+                        continue
+                    ch = os.read(fd, 1)
+                    if not ch:  # EOF (terminal ditutup)
+                        break
+                    if ch in (b' ', b'\r', b'\n'):  # SPASI atau ENTER
+                        self.terminal_trigger = True
+                    elif ch in (b'm', b'M'):  # Buka Manual
+                        self.terminal_manual = True
+                    elif ch in (b'q', b'Q'):  # Keluar
+                        self.terminal_quit = True
+                        break
                 except Exception:
                     break
 
@@ -696,8 +752,8 @@ class SmartParkingExitGate:
         print("  Status Kamera: LIVE WEBCAM MENYALA TERUS MENERUS")
         print("  Pemicu Capture Plat:")
         print("    1. Sensor IR 1 (Sebelum Palang)")
-        print("    2. Tekan tombol [SPASI] pada jendela kamera")
-        print("  Buka Manual: Tekan [M] atau Push Button (ESP32)")
+        print("    2. Tekan tombol [SPASI]/[ENTER] di jendela kamera atau terminal (termasuk SSH Linux)")
+        print("  Buka Manual: Tekan [M] (jendela kamera/terminal) atau Push Button (ESP32)")
         print(f"  Status ESP32: {'TERHUBUNG (' + str(self.hw.esp.port) + ')' if self.hw.is_connected else 'BELUM TERHUBUNG (MODE SIMULASI)'}")
         print("  Keluar: Tekan [Q] atau Ctrl + C")
         print("=" * 65 + "\n")
@@ -800,6 +856,13 @@ class SmartParkingExitGate:
 
     def cleanup(self):
         """Lepaskan seluruh resource hardware, kamera, dan stream server."""
+        # Kembalikan terminal Linux ke mode normal (jika listener POSIX sempat mengubahnya)
+        try:
+            restore = getattr(self, '_restore_terminal', None)
+            if restore:
+                restore()
+        except Exception:
+            pass
         self.stop_terminal_listener = True
         self.camera.stop()
         if self.stream_server:

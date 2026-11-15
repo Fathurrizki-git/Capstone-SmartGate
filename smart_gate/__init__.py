@@ -9,5 +9,5 @@ Paket program Smart Parking Exit Gate FT UNTIRTA.
 
 import os
 
-# Folder utama proyek (tempat main.py, config.py, web_dashboard/, cloudflared.exe)
+# Folder utama proyek (tempat main.py, config.py, web_dashboard/)
 PROJECT_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))

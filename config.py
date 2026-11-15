@@ -16,6 +16,8 @@ Komponen:
    10. LCD I2C 20x4 (SDA: GPIO21, SCL: GPIO22)
 """
 
+import sys
+
 # ── Plate Recognizer API ────────────────────────
 API_TOKEN = "476ed9b4276c169486fc16e30891cc01f9f0e4f1"          # Token dari platerecognizer.com
 API_URL = "https://api.platerecognizer.com/v1/plate-reader/"
@@ -70,7 +72,7 @@ SUPABASE_KEY = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJ
 # ── Penyimpanan & Debug ──────────────────────────
 SAVE_RESULTS = True                         # Simpan foto hasil deteksi ke folder output/
 OUTPUT_DIR = "output/"                      # Folder penyimpanan citra
-SHOW_PREVIEW = True                         # Set True untuk menampilkan jendela live kamera desktop
+SHOW_PREVIEW = sys.platform.startswith('win')  # Jendela live kamera desktop: otomatis aktif di Windows, mati di Mini PC headless
 STREAM_ENABLED = True                       # Siarkan live video ke Web Dashboard via HTTP MJPEG
 STREAM_PORT = 5050                          # Port dashboard lokal + kamera (http://<IP-Mini-PC>:5050)
 
@@ -79,5 +81,3 @@ STREAM_PORT = 5050                          # Port dashboard lokal + kamera (htt
 STREAM_WIDTH = 960                          # Lebar frame stream (1080p diperkecil). Lebih kecil = lebih ringan & cepat
 STREAM_JPEG_QUALITY = 70                    # Kualitas JPEG stream (50-80). Lebih rendah = ukuran kecil, latensi turun
 STREAM_MAX_FPS = 30                         # Batas fps stream (0 = ikuti fps kamera)
-CLOUDFLARE_TUNNEL_ENABLED = True           # False = dashboard lokal saja (disarankan, latensi terendah)
-                                            # True  = buat URL HTTPS publik (dashboard Netlify / akses luar jaringan)

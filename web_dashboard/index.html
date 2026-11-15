@@ -889,7 +889,6 @@ body.modal-open{overflow:hidden}
           <div class="cam-actions">
             <button type="button" class="btn btn-primary" id="cam-start"><span data-icon="camera" data-size="15"></span>Gunakan Webcam</button>
             <button type="button" class="btn btn-ghost" id="cam-stop" disabled><span data-icon="x" data-size="15"></span>Hentikan</button>
-            <button type="button" class="btn btn-ghost" id="cam-cfg"><span data-icon="settings" data-size="15"></span>URL Cloudflare</button>
             <button type="button" class="btn btn-ghost" id="cam-snap"><span data-icon="download" data-size="15"></span>Snapshot</button>
           </div>
           <div class="last-det">
@@ -914,27 +913,6 @@ body.modal-open{overflow:hidden}
       <button class="icon-btn" id="modal-close" aria-label="Tutup" data-icon="x"></button>
     </div>
     <div id="modal-body"></div>
-  </div>
-</div>
-
-<!-- Modal Konfigurasi URL Cloudflare Tunnel / Stream -->
-<div class="modal" id="cam-cfg-modal" hidden role="dialog" aria-modal="true" aria-labelledby="cam-cfg-title">
-  <div class="modal-card" style="max-width:480px">
-    <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:12px">
-      <h3 id="cam-cfg-title" class="card-title">Konfigurasi Kamera ALPR (Cloudflare Tunnel)</h3>
-      <button class="icon-btn" id="cam-cfg-close" aria-label="Tutup" data-icon="x"></button>
-    </div>
-    <p style="font-size:13px;color:var(--gray-400);line-height:1.5;margin-bottom:14px">
-      Masukkan URL HTTPS dari Cloudflare Tunnel (misal: <code>https://xxxx.trycloudflare.com/video_feed</code>) agar siaran kamera Mini PC / Laptop tampil langsung di Netlify tanpa terblokir keamanan browser.
-    </p>
-    <div style="margin-bottom:14px">
-      <label style="display:block;font-size:12px;font-weight:600;margin-bottom:6px">URL Stream Kamera (HTTPS / Localhost):</label>
-      <input type="text" id="input-cam-url" class="input" style="width:100%" placeholder="https://xxxx.trycloudflare.com/video_feed">
-    </div>
-    <div style="display:flex;gap:10px;justify-content:flex-end">
-      <button type="button" class="btn btn-ghost" id="btn-cam-reset">Reset (Lokal)</button>
-      <button type="button" class="btn btn-primary" id="btn-cam-save">Simpan & Sambungkan</button>
-    </div>
   </div>
 </div>
 
@@ -1277,11 +1255,11 @@ body.modal-open{overflow:hidden}
 
   /* =========================================================
      SUMBER DATA
-     - Dibuka dari server Mini PC (lokal :5050 / tunnel): API lokal -> PostgreSQL Mini PC,
+     - Dibuka dari server Mini PC (lokal :5050): API lokal -> PostgreSQL Mini PC,
        tetap berfungsi tanpa internet.
      - Dibuka dari Netlify: langsung ke Supabase Cloud.
      ========================================================= */
-  var USE_LOCAL_API = location.port === '5050' || location.hostname.includes('trycloudflare.com');
+  var USE_LOCAL_API = location.port === '5050';
 
   async function localApi(path, body) {
     var u = currentUser();
@@ -1385,7 +1363,6 @@ body.modal-open{overflow:hidden}
     var anyOpen = ($('#modal') && !$('#modal').hidden) ||
                   ($('#confirm-gate-modal') && !$('#confirm-gate-modal').hidden) ||
                   ($('#notif-summary-modal') && !$('#notif-summary-modal').hidden) ||
-                  ($('#cam-cfg-modal') && !$('#cam-cfg-modal').hidden) ||
                   ($('#quick-reg-modal') && !$('#quick-reg-modal').hidden) ||
                   ($('#qr-portal-modal') && !$('#qr-portal-modal').hidden);
     if (anyOpen) {
@@ -2137,28 +2114,20 @@ body.modal-open{overflow:hidden}
   }
 
   /* =========================================================
-     CAMERA (Live Python Stream Server, Cloudflare Tunnel & Webcam)
+     CAMERA (Live Python Stream Server Lokal & Webcam)
      ========================================================= */
   var camStream = null, camStarting = false, isPythonStreamActive = false;
   var streamActive = false, streamNextTimer = null, streamCheckTimer = null, currentStreamBase = null;
 
   function getCamStreamURL() {
-    // Dashboard dibuka langsung dari server Python (lokal / tunnel): selalu pakai server yang sama.
-    // URL Cloudflare tersimpan diabaikan agar dashboard lokal tidak memutar video lewat internet.
-    if (location.port === '5050' || location.hostname.includes('trycloudflare.com')) {
+    // Dashboard dibuka langsung dari server Python Mini PC (:5050): selalu pakai server yang sama.
+    if (location.port === '5050') {
       return location.origin + '/video_feed';
     }
-    var saved = localStorage.getItem('spg_cam_url');
-    if (saved && saved.trim()) return saved.trim();
-    if (location.protocol === 'https:' && location.hostname.includes('netlify.app')) {
-      return ''; // Pada Netlify HTTPS, tunggu URL Cloudflare HTTPS yang disetel pengguna
-    }
+    // Halaman HTTPS (Netlify) tidak bisa memutar stream HTTP lokal (diblokir browser / mixed content).
+    if (location.protocol === 'https:') return '';
     var host = location.hostname || 'localhost';
     return 'http://' + host + ':5050/video_feed';
-  }
-
-  function isTunnelBase(base) {
-    return base.includes('trycloudflare.com') || base.startsWith('https://');
   }
 
   function setCamIndicator(isLive) {
@@ -2233,11 +2202,6 @@ body.modal-open{overflow:hidden}
     }, 5000);
   }
 
-  function startLiveStream(baseUrl) {
-    if (isTunnelBase(baseUrl)) startSnapshotLoop(baseUrl); // Cloudflare mem-buffer MJPEG -> pakai snapshot
-    else startMjpegStream(baseUrl);
-  }
-
   function startSnapshotLoop(baseUrl) {
     stopSnapshotLoop();
     streamActive = true;
@@ -2282,10 +2246,8 @@ body.modal-open{overflow:hidden}
 
         setCamIndicator(true);
 
-        var isTunnel = cleanBase.includes('trycloudflare.com') || cleanBase.startsWith('https://');
-        var label = isTunnel ? 'Live Kamera ALPR (Cloudflare Tunnel Terhubung)' : 'Live Kamera ALPR (Lokal Terhubung)';
         if ($('#cam-status')) {
-          $('#cam-status').innerHTML = '<span class="live-dot" style="background:var(--green)"></span>' + label;
+          $('#cam-status').innerHTML = '<span class="live-dot" style="background:var(--green)"></span>Live Kamera ALPR (Lokal Terhubung)';
         }
 
         if (streamActive) {
@@ -2325,13 +2287,12 @@ body.modal-open{overflow:hidden}
       img.src = '';
       setCamIndicator(false);
       if (!camStream && $('#cam-status')) {
-        $('#cam-status').innerHTML = '<span class="live-dot" style="background:var(--graygray-400)"></span>Standby (Klik URL Cloudflare untuk sambungkan)';
+        $('#cam-status').innerHTML = '<span class="live-dot" style="background:var(--graygray-400)"></span>Live kamera hanya di dashboard lokal (http://IP-Mini-PC:5050)';
       }
       return;
     }
 
     var cleanBase = feedUrl.replace(/\/video_feed\/?$/i, '').replace(/\/snapshot\/?$/i, '').replace(/\/+$/, '');
-    var isTunnel = isTunnelBase(cleanBase);
 
     // Stream ke server yang sama sudah berjalan: jangan disambung ulang (renderSecurity dipanggil berkali-kali)
     if (streamActive && currentStreamBase === cleanBase) return;
@@ -2347,11 +2308,10 @@ body.modal-open{overflow:hidden}
       clearTimeout(timeout);
       if (res.ok) {
         isPythonStreamActive = true;
-        var label = isTunnel ? 'Live Kamera ALPR (Cloudflare Tunnel Terhubung)' : 'Live Kamera ALPR (Lokal Terhubung)';
         if ($('#cam-status')) {
-          $('#cam-status').innerHTML = '<span class="live-dot" style="background:var(--green)"></span>' + label;
+          $('#cam-status').innerHTML = '<span class="live-dot" style="background:var(--green)"></span>Live Kamera ALPR (Lokal Terhubung)';
         }
-        startLiveStream(cleanBase);
+        startMjpegStream(cleanBase);
         return;
       }
     } catch (err) {
@@ -2362,7 +2322,7 @@ body.modal-open{overflow:hidden}
     var probe = new Image();
     probe.onload = function () {
       isPythonStreamActive = true;
-      startLiveStream(cleanBase);
+      startMjpegStream(cleanBase);
     };
     probe.onerror = function () {
       stopSnapshotLoop();
@@ -2374,54 +2334,13 @@ body.modal-open{overflow:hidden}
         if ($('#cam-start')) $('#cam-start').disabled = false;
         if ($('#cam-stop')) $('#cam-stop').disabled = true;
         if ($('#cam-status')) {
-          var note = isTunnel ? 'Cloudflare Tunnel Belum Terhubung' : 'Standby (Kamera ALPR)';
-          $('#cam-status').innerHTML = '<span class="live-dot" style="background:var(--red)"></span>' + note;
+          $('#cam-status').innerHTML = '<span class="live-dot" style="background:var(--red)"></span>Standby (Kamera ALPR)';
         }
       }
     };
     probe.src = cleanBase + '/snapshot?t=' + Date.now();
   }
 
-  function openCamCfgModal() {
-    var cur = localStorage.getItem('spg_cam_url') || '';
-    if ($('#input-cam-url')) $('#input-cam-url').value = cur;
-    if ($('#cam-cfg-modal')) {
-      $('#cam-cfg-modal').hidden = false;
-      updateModalScrollLock();
-      if ($('#input-cam-url')) $('#input-cam-url').focus();
-    }
-  }
-
-  function closeCamCfgModal() {
-    if ($('#cam-cfg-modal')) {
-      $('#cam-cfg-modal').hidden = true;
-      updateModalScrollLock();
-    }
-  }
-
-  function saveCamCfg() {
-    var val = ($('#input-cam-url') ? $('#input-cam-url').value : '').trim();
-    if (val && !val.includes('/video_feed') && !val.includes('/snapshot') && !val.endsWith('.jpg')) {
-      val = val.replace(/\/+$/, '') + '/video_feed';
-    }
-    if (val) {
-      localStorage.setItem('spg_cam_url', val);
-      toast('URL Kamera berhasil disimpan: ' + val, 'success');
-    } else {
-      localStorage.removeItem('spg_cam_url');
-      toast('URL Kamera direset ke default.', 'info');
-    }
-    closeCamCfgModal();
-    checkPythonStream();
-  }
-
-  function resetCamCfg() {
-    localStorage.removeItem('spg_cam_url');
-    if ($('#input-cam-url')) $('#input-cam-url').value = '';
-    toast('URL Kamera direset ke default.', 'info');
-    closeCamCfgModal();
-    checkPythonStream();
-  }
 
   function setCamUI(on) {
     if ($('#cam-start')) $('#cam-start').disabled = on;
@@ -3350,13 +3269,6 @@ body.modal-open{overflow:hidden}
     // Camera
     if ($('#cam-start')) $('#cam-start').addEventListener('click', startCam);
     if ($('#cam-stop')) $('#cam-stop').addEventListener('click', function () { stopCam(); toast('Kamera dihentikan.', 'info'); });
-    if ($('#cam-cfg')) $('#cam-cfg').addEventListener('click', openCamCfgModal);
-    if ($('#cam-cfg-close')) $('#cam-cfg-close').addEventListener('click', closeCamCfgModal);
-    if ($('#btn-cam-save')) $('#btn-cam-save').addEventListener('click', saveCamCfg);
-    if ($('#btn-cam-reset')) $('#btn-cam-reset').addEventListener('click', resetCamCfg);
-    if ($('#cam-cfg-modal')) {
-      $('#cam-cfg-modal').addEventListener('click', function (e) { if (e.target === this) closeCamCfgModal(); });
-    }
     if ($('#cam-snap')) $('#cam-snap').addEventListener('click', snapshot);
 
     // Modal
@@ -3364,7 +3276,7 @@ body.modal-open{overflow:hidden}
     $('#modal').addEventListener('click', function (e) { if (e.target === this) closeModal(); });
 
     // Prevent backdrop scroll wheel/touch
-    ['#modal', '#confirm-gate-modal', '#notif-summary-modal', '#cam-cfg-modal', '#quick-reg-modal', '#qr-portal-modal'].forEach(function (id) {
+    ['#modal', '#confirm-gate-modal', '#notif-summary-modal', '#quick-reg-modal', '#qr-portal-modal'].forEach(function (id) {
       var m = $(id);
       if (!m) return;
       m.addEventListener('wheel', function (e) {
@@ -3414,7 +3326,6 @@ body.modal-open{overflow:hidden}
         closeModal();
         closeConfirmGateModal();
         closeNotifSummaryModal();
-        closeCamCfgModal();
         closeQuickRegModal();
         closeQrPortalModal();
         document.body.classList.remove('sb-open');

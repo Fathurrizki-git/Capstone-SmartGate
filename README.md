@@ -152,7 +152,6 @@ ALPR/
 ├── config.py                     # Konfigurasi kamera, ESP32, RFID, timing, database lokal & Supabase
 ├── requirements.txt              # Dependensi Python untuk Mini PC / Laptop
 ├── netlify.toml                  # Konfigurasi deploy dashboard ke Netlify
-├── cloudflared.exe               # Cloudflare Tunnel (opsional, tidak di-commit)
 │
 ├── smart_gate/                   # KODE PROGRAM
 │   ├── hardware/                 #   Perangkat keras gerbang
@@ -167,7 +166,7 @@ ALPR/
 │   │   ├── local_schema.sql      #     Skema tabel database lokal (dibuat otomatis)
 │   │   └── sync_worker.py        #     Sinkronisasi PostgreSQL lokal <-> Supabase di background
 │   └── web/                      #   Server dashboard
-│       ├── stream_server.py      #     Dashboard lokal + live kamera MJPEG :5050 + Cloudflare Tunnel
+│       ├── stream_server.py      #     Dashboard lokal + live kamera MJPEG :5050 (jaringan lokal)
 │       └── local_api.py          #     API dashboard lokal (/api/login, /api/logs, /api/vehicles, /api/gate/open)
 │
 ├── scripts/                      # ALAT BANTU ADMIN (dijalankan manual)
@@ -298,14 +297,11 @@ python main.py --test-cam
    ```
 3. Akses via browser: `http://<IP-Mini-PC>:8080` (atau `http://<IP-Mini-PC>:5050` saat `main.py` berjalan, lengkap dengan live kamera)
 
-### Lokal vs Cloudflare Tunnel
+### Live Kamera (Jaringan Lokal)
 
-| Mode | Pengaturan `config.py` | Akses Dashboard | Cocok untuk |
-|---|---|---|---|
-| **Lokal (default, disarankan)** | `CLOUDFLARE_TUNNEL_ENABLED = False` | `http://<IP-Mini-PC>:5050` dari perangkat di jaringan WiFi/LAN yang sama | Pos satpam di dekat gerbang; latensi kamera paling rendah, tidak terbuka ke internet |
-| **Cloudflare Tunnel** | `CLOUDFLARE_TUNNEL_ENABLED = True` + `cloudflared` | URL `https://xxxx.trycloudflare.com` (berganti setiap restart), diisi di tombol *URL Cloudflare* pada dashboard Netlify | Memantau kamera dari luar jaringan kampus |
+Live kamera hanya tersedia di dashboard lokal `http://<IP-Mini-PC>:5050`, dibuka dari perangkat di jaringan WiFi/LAN yang sama (tidak terbuka ke internet). Dashboard Netlify tetap bisa dipakai untuk data (log, kendaraan, buka gerbang), tetapi tidak menampilkan live kamera.
 
-Pada mode lokal, dashboard memutar kamera lewat **MJPEG push** (`/video_feed`): server mengirim setiap frame begitu tersedia melalui satu koneksi terbuka. Mode Cloudflare memakai polling `/snapshot` (1 request per frame) karena Cloudflare mem-buffer MJPEG. Kualitas stream lokal diatur di `config.py`:
+Dashboard memutar kamera lewat **MJPEG push** (`/video_feed`): server mengirim setiap frame begitu tersedia melalui satu koneksi terbuka (fallback ke polling `/snapshot` jika MJPEG gagal dimuat). Kualitas stream diatur di `config.py`:
 
 | Parameter | Default | Efek |
 |---|---|---|
@@ -313,7 +309,7 @@ Pada mode lokal, dashboard memutar kamera lewat **MJPEG push** (`/video_feed`): 
 | `STREAM_JPEG_QUALITY` | `70` | Kualitas JPEG (50–80). Lebih rendah = frame lebih kecil & cepat |
 | `STREAM_MAX_FPS` | `30` | Batas fps stream (`0` = ikuti fps kamera) |
 
-Database (log, login, kendaraan) selalu tersimpan di Supabase, sehingga **kedua mode tetap membutuhkan internet**. Halaman registrasi mandiri `/register` versi Netlify tetap bisa dipakai civitas dari mana saja tanpa tunnel, karena halaman itu tidak memakai kamera.
+Halaman registrasi mandiri `/register` versi Netlify tetap bisa dipakai civitas dari mana saja, karena halaman itu tidak memakai kamera.
    - **Login Demo:** `admin@untirta.ac.id` | Password: `admin123`
 
 ---
