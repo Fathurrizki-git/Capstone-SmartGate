@@ -64,7 +64,7 @@ GATE_MAX_WAIT = 25.0         # Batas waktu maksimal tunggu kendaraan melintas se
 # lagi) sampai kendaraan meninggalkan sensor. Setiap pindaian memakai 1 kuota Plate Recognizer.
 UNREG_CONFIRM_SCANS = 3      # Jumlah bacaan plat sama untuk memastikan tidak terdaftar
 UNREG_MAX_SCANS = 5          # Batas total pindaian per kendaraan (hasil berbeda-beda -> ambil plat terbanyak)
-UNREG_RESCAN_DELAY = 0.8     # Jeda sebelum pindai ulang (detik)
+UNREG_RESCAN_DELAY = 0.3     # Jeda sebelum pindai ulang otomatis (detik)
 UNREG_SESSION_TIMEOUT = 30.0 # Hitungan direset jika tidak ada pindaian selama ini (detik; mode tanpa IR)
 
 # ── Database Lokal (PostgreSQL di Mini PC) ─────────

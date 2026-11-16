@@ -86,6 +86,7 @@ class SmartParkingExitGate:
         self._unreg_total = 0        # total pindaian tidak terdaftar untuk kendaraan saat ini
         self._unreg_last = 0.0
         self._ir1_locked = False     # True = IR 1 diabaikan sampai kendaraan meninggalkan sensor
+        self._rescan_pending = False # True = pindai ulang otomatis di putaran berikutnya (tanpa perlu pemicu)
 
         # 5. Inisialisasi Kamera USB (thread terpisah: live stream tetap berjalan saat verifikasi)
         self.camera = CameraStream(
@@ -571,21 +572,24 @@ class SmartParkingExitGate:
         self.db.log_vehicle(plate_text=info["plate"], confidence=confidence, direction="OUT",
                             method="ALPR", custom_info=info)
 
-    def process_dual_verification(self, initial_rfid: str = None, frame = None):
+    def process_dual_verification(self, initial_rfid: str = None, frame = None, rescan: bool = False):
         """
         Alur Verifikasi Ganda:
         1. Baca Plat Nomor dari Kamera USB.
         2. Minta Pengendara Tap Kartu RFID (atau gunakan initial_rfid jika tap duluan).
         3. Cocokkan: KEDUA parameter (Plat & RFID) HARUS sesuai dengan data yang sama di database.
+        rescan=True: pindai ulang konfirmasi plat tidak terdaftar (tanpa beep, tahan preview singkat,
+        dan tanpa menarik daftar kendaraan Supabase agar secepat mungkin).
         """
-        print("\n[PROSES VERIFIKASI GANDA] Kendaraan terdeteksi di gerbang keluar...")
-        self.hw.lcd.display(
-            "KENDARAAN KELUAR... ",
-            "MENGAMBIL FOTO PLAT ",
-            "MEMPROSES OCR API...",
-            "MOHON TUNGGU...     "
-        )
-        self.hw.buzzer_beep(0.08, 1)
+        if not rescan:
+            print("\n[PROSES VERIFIKASI GANDA] Kendaraan terdeteksi di gerbang keluar...")
+            self.hw.lcd.display(
+                "KENDARAAN KELUAR... ",
+                "MENGAMBIL FOTO PLAT ",
+                "MEMPROSES OCR API...",
+                "MOHON TUNGGU...     "
+            )
+            self.hw.buzzer_beep(0.08, 1)
 
         # 1. Ambil foto dan deteksi plat via Webcam USB
         if frame is None:
@@ -647,10 +651,10 @@ class SmartParkingExitGate:
         if getattr(config, 'SHOW_PREVIEW', True):
             annotated_disp = self._fit_preview(draw_results(frame.copy(), [best]))
             cv2.imshow("Smart Parking Gate ALPR - FT Untirta", annotated_disp)
-            self._show_for(0.8)
+            self._show_for(0.15 if rescan else 0.8)
 
         # 2. Ambil Kartu RFID (Cek juga apakah plat sedang menunggu Auto-Bind kartu baru)
-        veh_precheck = self.db.lookup_vehicle(plate_text)
+        veh_precheck = self.db.lookup_vehicle(plate_text, allow_refresh=not rescan)
         needs_bind = bool(veh_precheck.get("matched") and veh_precheck.get("needs_rfid_bind"))
         if needs_bind:
             print(f"  [AUTO-BIND SIAP \u26a1] Plat '{plate_text}' ({veh_precheck.get('owner_name')}) terdaftar mandiri & menunggu aktivasi kartu RFID pertama!")
@@ -677,8 +681,9 @@ class SmartParkingExitGate:
                     f"PINDAI ULANG {count}/{need}",
                     "MOHON TETAP DI TEMPAT"
                 )
-                time.sleep(getattr(config, 'UNREG_RESCAN_DELAY', 0.8))
-                return  # IR 1 masih terhalang -> loop utama langsung memindai lagi
+                time.sleep(getattr(config, 'UNREG_RESCAN_DELAY', 0.3))
+                self._rescan_pending = True  # loop utama langsung memindai lagi tanpa menunggu pemicu
+                return
 
             top_count = self._unreg_counts.get(top_plate, count)
             final_plate = plate_text if count >= need else top_plate
@@ -898,7 +903,17 @@ class SmartParkingExitGate:
                 ir_triggered = ir_raw and not self._ir1_locked
                 space_triggered = (key == ord(' ') or key == 13 or self.terminal_trigger)
 
-                if ir_triggered or space_triggered:
+                # Pindai ulang otomatis (konfirmasi plat tidak terdaftar); batal jika kendaraan sudah pergi
+                rescan = self._rescan_pending
+                self._rescan_pending = False
+                if rescan and self.hw.is_connected and not ir_raw:
+                    print("  [PINDAI ULANG] Dibatalkan: kendaraan sudah meninggalkan Sensor IR 1.")
+                    rescan = False
+
+                if rescan and not space_triggered:
+                    # Frame baru diambil di dalam proses (read_fresh) agar tidak memakai gambar yang sama
+                    self.process_dual_verification(rescan=True)
+                elif ir_triggered or space_triggered:
                     trigger_src = "SENSOR INFRARED 1" if ir_triggered else "TOMBOL [SPASI] (Terminal VSCode / Kamera)"
                     self.terminal_trigger = False
                     print(f"\n[TRIGGER] Kendaraan terdeteksi via {trigger_src}!")

@@ -71,13 +71,16 @@ class GateDatabase:
             raise
 
     # ── Verifikasi Gerbang (dipakai main.py) ───────
-    def lookup_vehicle(self, plate_text: str) -> dict:
-        """Cocokkan plat hasil OCR dengan kendaraan terdaftar (mengabaikan spasi & huruf besar/kecil)."""
+    def lookup_vehicle(self, plate_text: str, allow_refresh: bool = True) -> dict:
+        """
+        Cocokkan plat hasil OCR dengan kendaraan terdaftar (mengabaikan spasi & huruf besar/kecil).
+        allow_refresh=False: jangan tarik daftar kendaraan Supabase bila plat tidak ditemukan (pindai ulang cepat).
+        """
         if not normalize_plate(plate_text):
             return _unregistered(plate_text)
         try:
             row = self._find_plate(plate_text)
-            if row is None and self.sync.refresh_vehicles_now():
+            if row is None and allow_refresh and self.sync.refresh_vehicles_now():
                 row = self._find_plate(plate_text)  # Siapa tahu baru saja daftar via Netlify / QR HP
         except LocalDBError:
             return _unregistered(plate_text, reason="DB_OFFLINE")
