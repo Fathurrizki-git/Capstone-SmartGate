@@ -41,6 +41,7 @@ from smart_gate.vision.camera import CameraStream
 from smart_gate.hardware.hardware import HardwareManager
 from smart_gate.vision.plate_recognizer import PlateRecognizerAPI, draw_results
 from smart_gate.database.gate_database import GateDatabase
+from smart_gate.database.local_db import normalize_plate
 from smart_gate.web.stream_server import VideoStreamServer
 import threading
 
@@ -79,6 +80,12 @@ class SmartParkingExitGate:
         self.terminal_quit = False
         self.stop_terminal_listener = False
         self._start_terminal_listener()
+
+        # Konfirmasi plat tidak terdaftar (pindai ulang s/d UNREG_CONFIRM_SCANS kali, lalu kunci IR 1)
+        self._unreg_counts = {}      # plat (dinormalisasi) -> jumlah terbaca tidak terdaftar
+        self._unreg_total = 0        # total pindaian tidak terdaftar untuk kendaraan saat ini
+        self._unreg_last = 0.0
+        self._ir1_locked = False     # True = IR 1 diabaikan sampai kendaraan meninggalkan sensor
 
         # 5. Inisialisasi Kamera USB (thread terpisah: live stream tetap berjalan saat verifikasi)
         self.camera = CameraStream(
@@ -531,6 +538,22 @@ class SmartParkingExitGate:
 
         self.hw.lcd.display_standby()
 
+    def _reset_unreg_session(self):
+        self._unreg_counts = {}
+        self._unreg_total = 0
+        self._unreg_last = 0.0
+
+    def _record_unreg_scan(self, plate_text: str):
+        """Catat satu bacaan plat tidak terdaftar. Return (jumlah plat ini, total pindaian, plat terbanyak)."""
+        if time.time() - self._unreg_last > getattr(config, 'UNREG_SESSION_TIMEOUT', 30.0):
+            self._reset_unreg_session()
+        key = normalize_plate(plate_text) or plate_text
+        self._unreg_counts[key] = self._unreg_counts.get(key, 0) + 1
+        self._unreg_total += 1
+        self._unreg_last = time.time()
+        top = max(self._unreg_counts, key=self._unreg_counts.get)
+        return self._unreg_counts[key], self._unreg_total, top
+
     def _log_gate_event(self, status: str, plate: str = "UNKNOWN", confidence: float = 0.0):
         """
         Catat kejadian gagal sebelum verifikasi ganda (plat terbaca tetapi RFID tidak di-tap)
@@ -632,15 +655,45 @@ class SmartParkingExitGate:
         if needs_bind:
             print(f"  [AUTO-BIND SIAP \u26a1] Plat '{plate_text}' ({veh_precheck.get('owner_name')}) terdaftar mandiri & menunggu aktivasi kartu RFID pertama!")
 
-        # Plat tidak terdaftar (atau database lokal mati): langsung tolak tanpa menunggu tap RFID,
-        # karena tap kartu apa pun tetap tidak bisa lolos verifikasi. Log + Security Notification
-        # langsung tercatat. Kartu bisa diikat nanti lewat Quick Register / Auto-Bind saat tap pertama.
+        # Plat tidak terdaftar: tidak menunggu tap RFID (kartu apa pun tetap tidak lolos verifikasi).
+        # Untuk menghindari salah baca OCR, plat dipindai ulang selama kendaraan masih di IR 1 dan baru
+        # ditolak (log + alarm + Security Notification) setelah plat yang sama terbaca UNREG_CONFIRM_SCANS
+        # kali. Setelah itu IR 1 dikunci agar tidak memindai lagi sampai kendaraan pergi.
         # Jika kartu sudah di-tap duluan (initial_rfid), tetap lewat verifikasi agar UID-nya tercatat.
         if not veh_precheck.get("matched") and not initial_rfid:
-            print(f"  [DITOLAK LANGSUNG] Plat '{plate_text}' tidak terdaftar \u2014 tidak menunggu tap RFID.")
-            self.handle_exit_failed({**veh_precheck, "confidence": conf},
-                                    reason=veh_precheck.get("reason", "UNREGISTERED"))
+            if veh_precheck.get("reason") == "DB_OFFLINE":
+                self.handle_exit_failed({**veh_precheck, "confidence": conf}, reason="DB_OFFLINE")
+                return
+
+            need = getattr(config, 'UNREG_CONFIRM_SCANS', 3)
+            max_scans = getattr(config, 'UNREG_MAX_SCANS', 5)
+            count, total, top_plate = self._record_unreg_scan(plate_text)
+            if count < need and total < max_scans:
+                print(f"  [PINDAI ULANG] Plat '{plate_text}' tidak terdaftar ({count}/{need}, pindaian {total}/{max_scans}). "
+                      "Memastikan dengan pindaian berikutnya...")
+                self.hw.lcd.display(
+                    "MEMASTIKAN PLAT...  ",
+                    f"PLAT: {plate_text[:14]}",
+                    f"PINDAI ULANG {count}/{need}",
+                    "MOHON TETAP DI TEMPAT"
+                )
+                time.sleep(getattr(config, 'UNREG_RESCAN_DELAY', 0.8))
+                return  # IR 1 masih terhalang -> loop utama langsung memindai lagi
+
+            top_count = self._unreg_counts.get(top_plate, count)
+            final_plate = plate_text if count >= need else top_plate
+            print(f"  [DIPASTIKAN TIDAK TERDAFTAR] Plat '{final_plate}' ({max(count, top_count)}x dari {total} pindaian). "
+                  "IR 1 dikunci sampai kendaraan meninggalkan sensor (SPASI / M tetap bisa dipakai petugas).")
+            self._reset_unreg_session()
+            self._ir1_locked = True
+            info = {**veh_precheck, "confidence": conf}
+            if final_plate != plate_text:
+                info["plate"] = final_plate.strip().upper()
+            self.handle_exit_failed(info, reason="UNREGISTERED")
             return
+
+        # Plat terdaftar terbaca: sesi konfirmasi plat tidak terdaftar selesai
+        self._reset_unreg_session()
 
         rfid_uid = initial_rfid
         if not rfid_uid:
@@ -834,7 +887,15 @@ class SmartParkingExitGate:
                     key = self._wait_key(25)
 
                 # 3. Cek Pemicu: Spasi ditekan di Terminal VSCode / Jendela Kamera ATAU Sensor IR 1
-                ir_triggered = self.hw.is_vehicle_at_sensor1()
+                ir_raw = self.hw.is_vehicle_at_sensor1()
+                if not ir_raw and self.hw.is_connected:
+                    # Kendaraan meninggalkan IR 1: buka kunci & reset hitungan konfirmasi plat
+                    if self._ir1_locked:
+                        print("  [IR1] Kendaraan meninggalkan sensor. Pemindaian otomatis aktif kembali.")
+                    self._ir1_locked = False
+                    if self._unreg_total:
+                        self._reset_unreg_session()
+                ir_triggered = ir_raw and not self._ir1_locked
                 space_triggered = (key == ord(' ') or key == 13 or self.terminal_trigger)
 
                 if ir_triggered or space_triggered:

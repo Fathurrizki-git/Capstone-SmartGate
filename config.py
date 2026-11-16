@@ -58,6 +58,15 @@ RFID_WAIT_TIMEOUT = 12.0     # Batas waktu tunggu tap RFID setelah plat terbaca 
 GATE_CLOSE_DELAY = 2.0       # Timer jeda setelah Sensor IR 2 bebas sebelum palang menutup (detik)
 GATE_MAX_WAIT = 25.0         # Batas waktu maksimal tunggu kendaraan melintas sebelum fail-safe (detik)
 
+# Konfirmasi plat tidak terdaftar (mengurangi salah baca OCR): plat yang tidak terdaftar dipindai ulang
+# selama kendaraan masih di Sensor IR 1. Baru ditolak (log + alarm + Security Notification) setelah plat
+# yang SAMA terbaca tidak terdaftar sebanyak UNREG_CONFIRM_SCANS kali, lalu IR 1 dikunci (tidak memindai
+# lagi) sampai kendaraan meninggalkan sensor. Setiap pindaian memakai 1 kuota Plate Recognizer.
+UNREG_CONFIRM_SCANS = 3      # Jumlah bacaan plat sama untuk memastikan tidak terdaftar
+UNREG_MAX_SCANS = 5          # Batas total pindaian per kendaraan (hasil berbeda-beda -> ambil plat terbanyak)
+UNREG_RESCAN_DELAY = 0.8     # Jeda sebelum pindai ulang (detik)
+UNREG_SESSION_TIMEOUT = 30.0 # Hitungan direset jika tidak ada pindaian selama ini (detik; mode tanpa IR)
+
 # ── Database Lokal (PostgreSQL di Mini PC) ─────────
 # Sumber data utama gerbang: tetap berfungsi tanpa internet. Buat database & user-nya: python scripts/setup_local_db.py
 LOCAL_DB_URL = "postgresql://smart_gate:smartgate123@localhost:5432/smart_gate"
