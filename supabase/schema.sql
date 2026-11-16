@@ -25,7 +25,7 @@ CREATE TABLE IF NOT EXISTS public.registered_vehicles (
   created_at TIMESTAMPTZ DEFAULT NOW(),
   plate VARCHAR(20) UNIQUE NOT NULL,
   owner VARCHAR(100) NOT NULL,
-  category VARCHAR(50) NOT NULL CHECK (category IN ('STUDENT', 'LECTURER', 'ACADEMIC COMMUNITY')),
+  category VARCHAR(50) NOT NULL CHECK (category IN ('STUDENT', 'LECTURER', 'ACADEMIC COMMUNITY', 'OTHERS')),
   nim_nip VARCHAR(50),
   rfid_uid VARCHAR(50) UNIQUE,
   updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW() -- dipakai sinkronisasi database lokal Mini PC
@@ -93,6 +93,32 @@ CREATE POLICY "Allow public update gate_commands" ON public.gate_commands FOR UP
 CREATE POLICY "Allow public delete gate_commands" ON public.gate_commands FOR DELETE USING (true);
 
 ALTER PUBLICATION supabase_realtime ADD TABLE public.gate_commands;
+
+-- 4b. TABEL ALERT STATES (status dibaca / dihapus Security Notification, per log)
+--     Kunci = vehicle_logs.client_uuid (sama di Supabase & database lokal Mini PC).
+--     Nilai hanya berubah FALSE -> TRUE, sehingga sinkronisasi dua arah tidak pernah bentrok.
+CREATE TABLE IF NOT EXISTS public.alert_states (
+  log_uuid UUID PRIMARY KEY,
+  is_read BOOLEAN NOT NULL DEFAULT FALSE,
+  dismissed BOOLEAN NOT NULL DEFAULT FALSE,
+  updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+
+DROP TRIGGER IF EXISTS trg_alert_states_updated_at ON public.alert_states;
+CREATE TRIGGER trg_alert_states_updated_at
+  BEFORE UPDATE ON public.alert_states
+  FOR EACH ROW EXECUTE FUNCTION public.set_updated_at();
+
+CREATE INDEX IF NOT EXISTS idx_alert_states_updated ON public.alert_states (updated_at);
+
+ALTER TABLE public.alert_states ENABLE ROW LEVEL SECURITY;
+
+DROP POLICY IF EXISTS "Allow public read alert_states" ON public.alert_states;
+DROP POLICY IF EXISTS "Allow public insert alert_states" ON public.alert_states;
+DROP POLICY IF EXISTS "Allow public update alert_states" ON public.alert_states;
+CREATE POLICY "Allow public read alert_states" ON public.alert_states FOR SELECT USING (true);
+CREATE POLICY "Allow public insert alert_states" ON public.alert_states FOR INSERT WITH CHECK (true);
+CREATE POLICY "Allow public update alert_states" ON public.alert_states FOR UPDATE USING (true);
 
 -- ============================================================
 -- 5. DATA AWAL (SEED DATA CONTOH)

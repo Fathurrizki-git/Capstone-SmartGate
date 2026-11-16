@@ -27,3 +27,32 @@ ALTER TABLE public.vehicle_logs
 
 -- 3. Status perintah buka gerbang yang kedaluwarsa (dikirim saat Mini PC offline)
 COMMENT ON COLUMN public.gate_commands.status IS 'PENDING, EXECUTED, EXPIRED';
+
+-- 4. Kategori kendaraan: tambah OTHERS (selain STUDENT, LECTURER, ACADEMIC COMMUNITY)
+ALTER TABLE public.registered_vehicles DROP CONSTRAINT IF EXISTS registered_vehicles_category_check;
+ALTER TABLE public.registered_vehicles ADD CONSTRAINT registered_vehicles_category_check
+  CHECK (category IN ('STUDENT', 'LECTURER', 'ACADEMIC COMMUNITY', 'OTHERS'));
+
+-- 5. Status dibaca / dihapus Security Notification (tersinkron antar perangkat & Mini PC)
+CREATE TABLE IF NOT EXISTS public.alert_states (
+  log_uuid UUID PRIMARY KEY,
+  is_read BOOLEAN NOT NULL DEFAULT FALSE,
+  dismissed BOOLEAN NOT NULL DEFAULT FALSE,
+  updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+
+DROP TRIGGER IF EXISTS trg_alert_states_updated_at ON public.alert_states;
+CREATE TRIGGER trg_alert_states_updated_at
+  BEFORE UPDATE ON public.alert_states
+  FOR EACH ROW EXECUTE FUNCTION public.set_updated_at();
+
+CREATE INDEX IF NOT EXISTS idx_alert_states_updated ON public.alert_states (updated_at);
+
+ALTER TABLE public.alert_states ENABLE ROW LEVEL SECURITY;
+
+DROP POLICY IF EXISTS "Allow public read alert_states" ON public.alert_states;
+DROP POLICY IF EXISTS "Allow public insert alert_states" ON public.alert_states;
+DROP POLICY IF EXISTS "Allow public update alert_states" ON public.alert_states;
+CREATE POLICY "Allow public read alert_states" ON public.alert_states FOR SELECT USING (true);
+CREATE POLICY "Allow public insert alert_states" ON public.alert_states FOR INSERT WITH CHECK (true);
+CREATE POLICY "Allow public update alert_states" ON public.alert_states FOR UPDATE USING (true);

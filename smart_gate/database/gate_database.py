@@ -16,7 +16,7 @@ import config
 from smart_gate.database.local_db import LocalDB, LocalDBError, normalize_plate, clean_rfid
 from smart_gate.database.sync_worker import SyncWorker
 
-VALID_CATEGORIES = ("STUDENT", "LECTURER", "ACADEMIC COMMUNITY")
+VALID_CATEGORIES = ("STUDENT", "LECTURER", "ACADEMIC COMMUNITY", "OTHERS")
 
 
 def _unregistered(plate_text: str, rfid_uid: str = "", reason: str = "UNREGISTERED") -> dict:
@@ -206,6 +206,13 @@ class GateDatabase:
     def list_logs(self, limit=150):
         return self.local.list_logs(min(max(int(limit), 1), 1000))
 
+    def mark_alerts(self, log_uuids: list, read: bool = False, dismissed: bool = False):
+        self.local.mark_alerts(log_uuids, read=read, dismissed=dismissed)
+        self.sync.request_sync()
+
+    def list_out_times(self, since, until):
+        return self.local.list_out_times(since, until)
+
     def list_vehicles(self):
         return self.local.list_vehicles()
 
@@ -219,7 +226,7 @@ class GateDatabase:
         if len(owner) < 2:
             raise ValueError("Nama pemilik wajib diisi.")
         if category not in VALID_CATEGORIES:
-            raise ValueError("Kategori harus STUDENT, LECTURER, atau ACADEMIC COMMUNITY.")
+            raise ValueError("Kategori harus STUDENT, LECTURER, ACADEMIC COMMUNITY, atau OTHERS.")
 
         if rfid:
             card_owner = self.local.find_vehicle_by_rfid(rfid)

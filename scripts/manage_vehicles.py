@@ -83,12 +83,12 @@ def add_vehicle(plate=None, name=None, category=None, nim_nip=None, rfid=None):
         name = input("Nama Pemilik: ").strip()
 
     if not category:
-        print("Pilihan Kategori: [1] STUDENT  [2] LECTURER  [3] ACADEMIC COMMUNITY")
-        pilihan = input("Pilih Kategori (1/2/3, default 1): ").strip()
-        category = "LECTURER" if pilihan == "2" else "ACADEMIC COMMUNITY" if pilihan == "3" else "STUDENT"
+        print("Pilihan Kategori: [1] STUDENT  [2] LECTURER  [3] ACADEMIC COMMUNITY  [4] OTHERS")
+        pilihan = input("Pilih Kategori (1/2/3/4, default 1): ").strip()
+        category = {"2": "LECTURER", "3": "ACADEMIC COMMUNITY", "4": "OTHERS"}.get(pilihan, "STUDENT")
     else:
         cat_upper = category.strip().upper()
-        if cat_upper in ('STUDENT', 'LECTURER', 'ACADEMIC COMMUNITY'):
+        if cat_upper in ('STUDENT', 'LECTURER', 'ACADEMIC COMMUNITY', 'OTHERS'):
             category = cat_upper
         else:
             category = 'STUDENT'
@@ -181,7 +181,7 @@ if __name__ == '__main__':
     parser.add_argument('--logs', action='store_true', help="Tampilkan log deteksi gerbang terbaru")
     parser.add_argument('--plate', type=str, help="Plat nomor kendaraan (contoh: B 1234 ABC)")
     parser.add_argument('--name', type=str, help="Nama pemilik kendaraan")
-    parser.add_argument('--category', type=str, help="Kategori (STUDENT / LECTURER / ACADEMIC COMMUNITY)")
+    parser.add_argument('--category', type=str, help="Kategori (STUDENT / LECTURER / ACADEMIC COMMUNITY / OTHERS)")
     parser.add_argument('--nim', type=str, help="NIM atau NIP pemilik")
     parser.add_argument('--rfid', type=str, help="UID Kartu RFID USB (contoh: 0001234567)")
 

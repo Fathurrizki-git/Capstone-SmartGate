@@ -9,6 +9,8 @@ Endpoint (semua kecuali /api/login wajib header  Authorization: Bearer <token>):
   POST /api/logout
   GET  /api/me                                            -> {user}
   GET  /api/logs?limit=150                                -> {logs}
+  GET  /api/logs/trend?since=<ISO>&until=<ISO>            -> {times} (created_at kendaraan OUT, untuk Trendline)
+  POST /api/alerts/state     {uuids, read?, dismissed?}   -> tandai Security Notification dibaca / dihapus
   GET  /api/vehicles                                      -> {vehicles}
   POST /api/vehicles         {id?, plate, owner, category, nim_nip, rfid_uid} -> {vehicle}
   POST /api/vehicles/delete  {id}
@@ -17,6 +19,7 @@ Endpoint (semua kecuali /api/login wajib header  Authorization: Bearer <token>):
 """
 
 import json
+from uuid import UUID
 from decimal import Decimal
 from datetime import datetime
 from urllib.parse import urlparse, parse_qs
@@ -30,7 +33,8 @@ except ImportError:
 MAX_BODY = 64 * 1024
 VEHICLE_KEYS = ("id", "plate", "owner", "category", "nim_nip", "rfid_uid", "created_at", "updated_at")
 LOG_KEYS = ("id", "created_at", "plate", "name", "category", "nim_nip", "status", "method",
-            "direction", "confidence", "region")
+            "direction", "confidence", "region", "client_uuid", "alert_read", "alert_dismissed")
+MAX_ALERT_UUIDS = 1000
 
 
 def _json_default(obj):
@@ -60,6 +64,14 @@ def _read_json(handler) -> dict:
     if not isinstance(body, dict):
         raise ValueError("Format data tidak valid.")
     return body
+
+
+def _parse_iso(value: str) -> datetime:
+    """ISO 8601 dari JS (toISOString, akhiran 'Z') → datetime ber-zona waktu."""
+    dt = datetime.fromisoformat(value.strip().replace("Z", "+00:00"))
+    if dt.tzinfo is None:
+        raise ValueError("zona waktu wajib")
+    return dt
 
 
 def _token(handler) -> str:
@@ -105,6 +117,26 @@ def handle(handler, method: str, path: str, db):
         if method == "GET" and path == "/api/logs":
             limit = int(query.get("limit", ["150"])[0])
             return send_json(handler, 200, {"logs": [_log_out(r) for r in db.list_logs(limit)]})
+        if method == "GET" and path == "/api/logs/trend":
+            try:
+                since = _parse_iso(query.get("since", [""])[0])
+                until = _parse_iso(query.get("until", [""])[0])
+            except ValueError:
+                return send_json(handler, 400, {"error": "Parameter since/until harus format ISO 8601."})
+            if until <= since or (until - since).days > 62:
+                return send_json(handler, 400, {"error": "Rentang waktu tidak valid (maksimal 62 hari)."})
+            return send_json(handler, 200, {"times": db.list_out_times(since, until)})
+        if method == "POST" and path == "/api/alerts/state":
+            body = _read_json(handler)
+            uuids = body.get("uuids") or []
+            if not isinstance(uuids, list) or len(uuids) > MAX_ALERT_UUIDS:
+                return send_json(handler, 400, {"error": f"uuids harus berupa list (maksimal {MAX_ALERT_UUIDS})."})
+            try:
+                uuids = [str(UUID(str(u))) for u in uuids]
+            except ValueError:
+                return send_json(handler, 400, {"error": "Format uuid notifikasi tidak valid."})
+            db.mark_alerts(uuids, read=bool(body.get("read")), dismissed=bool(body.get("dismissed")))
+            return send_json(handler, 200, {"ok": True, "count": len(uuids)})
         if method == "GET" and path == "/api/vehicles":
             return send_json(handler, 200, {"vehicles": [_vehicle_out(r) for r in db.list_vehicles()]})
         if method == "POST" and path == "/api/vehicles":

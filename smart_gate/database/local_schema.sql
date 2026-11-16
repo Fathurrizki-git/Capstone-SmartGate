@@ -31,7 +31,7 @@ CREATE TABLE IF NOT EXISTS registered_vehicles (
   plate VARCHAR(20) NOT NULL,
   plate_norm VARCHAR(20) GENERATED ALWAYS AS (UPPER(REGEXP_REPLACE(plate, '[^A-Za-z0-9]', '', 'g'))) STORED UNIQUE,
   owner VARCHAR(100) NOT NULL,
-  category VARCHAR(50) NOT NULL CHECK (category IN ('STUDENT', 'LECTURER', 'ACADEMIC COMMUNITY')),
+  category VARCHAR(50) NOT NULL CHECK (category IN ('STUDENT', 'LECTURER', 'ACADEMIC COMMUNITY', 'OTHERS')),
   nim_nip VARCHAR(50),
   rfid_uid VARCHAR(50) UNIQUE,
   dirty BOOLEAN NOT NULL DEFAULT FALSE,        -- perubahan lokal yang belum dikirim ke Supabase
@@ -55,5 +55,22 @@ CREATE TABLE IF NOT EXISTS vehicle_logs (
   synced BOOLEAN NOT NULL DEFAULT FALSE        -- FALSE = antre dikirim saat internet tersedia
 );
 
+-- Database lama: perbarui daftar kategori yang diizinkan (tambah OTHERS). Aman dijalankan ulang.
+ALTER TABLE registered_vehicles DROP CONSTRAINT IF EXISTS registered_vehicles_category_check;
+ALTER TABLE registered_vehicles ADD CONSTRAINT registered_vehicles_category_check
+  CHECK (category IN ('STUDENT', 'LECTURER', 'ACADEMIC COMMUNITY', 'OTHERS'));
+
 CREATE INDEX IF NOT EXISTS idx_vehicle_logs_unsynced ON vehicle_logs (id) WHERE NOT synced;
 CREATE INDEX IF NOT EXISTS idx_vehicle_logs_created ON vehicle_logs (created_at DESC);
+
+-- 5. STATUS SECURITY NOTIFICATION (dibaca / dihapus), sinkron dua arah dengan Supabase alert_states.
+--    Kunci = vehicle_logs.client_uuid. Nilai hanya FALSE -> TRUE (digabung dengan OR saat sinkron).
+CREATE TABLE IF NOT EXISTS alert_states (
+  log_uuid UUID PRIMARY KEY,
+  is_read BOOLEAN NOT NULL DEFAULT FALSE,
+  dismissed BOOLEAN NOT NULL DEFAULT FALSE,
+  dirty BOOLEAN NOT NULL DEFAULT FALSE,        -- perubahan lokal yang belum dikirim ke Supabase
+  updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+
+CREATE INDEX IF NOT EXISTS idx_alert_states_dirty ON alert_states (log_uuid) WHERE dirty;
