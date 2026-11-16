@@ -5,7 +5,7 @@ Setiap putaran (config.SYNC_INTERVAL detik, atau segera saat ada log/perubahan b
   1. Kirim log kendaraan yang belum terkirim          (lokal -> Supabase)
   2. Kirim perubahan kendaraan lokal                  (lokal -> Supabase: tambah/ubah/hapus/auto-bind RFID)
   3. Ambil daftar kendaraan terbaru                   (Supabase -> lokal: pendaftaran via Netlify /register)
-  4. Status Security Notification dibaca/dihapus     (dua arah, tabel alert_states; digabung dengan OR)
+  4. Security Notification (tabel security_alerts)   (isi: lokal -> Supabase; status dibaca/dihapus: dua arah, OR)
   5. Ambil akun petugas (tiap 60 detik)               (Supabase -> lokal: login dashboard lokal saat offline)
 
 Perintah buka gerbang dari dashboard Netlify (tabel gate_commands) dipantau di thread
@@ -41,8 +41,8 @@ class SyncWorker:
         self.last_error = None
         self.has_log_uuid = None            # Kolom vehicle_logs.client_uuid tersedia di Supabase?
         self.has_vehicle_updated_at = None  # Kolom registered_vehicles.updated_at tersedia di Supabase?
-        self.has_alert_states = None        # Tabel alert_states tersedia di Supabase?
-        self._alerts_since = None           # updated_at terakhir alert_states yang sudah ditarik
+        self.has_security_alerts = None     # Tabel security_alerts tersedia di Supabase?
+        self._alerts_since = None           # updated_at terakhir security_alerts yang sudah ditarik
         self._last_users_pull = 0.0
         self._lock = threading.Lock()
         self._wake = threading.Event()
@@ -102,9 +102,10 @@ class SyncWorker:
                 self._push_logs()
                 self._push_vehicles()
                 self._pull_vehicles()
-                if self.has_alert_states:
-                    self._push_alert_states()
-                    self._pull_alert_states()
+                if self.has_security_alerts:
+                    self._push_security_alerts()
+                    self._push_alert_status()
+                    self._pull_alert_status()
                 if time.time() - self._last_users_pull >= USERS_PULL_INTERVAL:
                     self._pull_users()
                     self._last_users_pull = time.time()
@@ -126,15 +127,15 @@ class SyncWorker:
         if self.has_vehicle_updated_at is None:
             self.has_vehicle_updated_at = self._req('GET', 'registered_vehicles?select=updated_at&limit=1', timeout=5).status_code == 200
             changed = True
-        if self.has_alert_states is None:
-            self.has_alert_states = self._req('GET', 'alert_states?select=log_uuid&limit=1', timeout=5).status_code == 200
+        if self.has_security_alerts is None:
+            self.has_security_alerts = self._req('GET', 'security_alerts?select=log_uuid&limit=1', timeout=5).status_code == 200
             changed = True
         if changed and not (self.has_log_uuid and self.has_vehicle_updated_at):
             print("[WARN] Kolom sinkronisasi belum ada di Supabase. Jalankan supabase/migration_sync.sql di "
                   "SQL Editor Supabase agar log tidak berisiko terkirim dobel & konflik data terdeteksi akurat.")
-        if changed and not self.has_alert_states:
-            print("[WARN] Tabel alert_states belum ada di Supabase: status dibaca/dihapus Security Notification "
-                  "hanya tersimpan lokal. Jalankan bagian 5 supabase/migration_sync.sql di SQL Editor Supabase.")
+        if changed and not self.has_security_alerts:
+            print("[WARN] Tabel security_alerts belum ada di Supabase: Security Notification hanya tercatat lokal. "
+                  "Jalankan bagian 5 supabase/migration_sync.sql di SQL Editor Supabase.")
 
     def _push_logs(self):
         while True:
@@ -219,36 +220,63 @@ class SyncWorker:
         if changes:
             print(f"  [SYNC] Kendaraan dari Supabase: {changes}")
 
-    def _push_alert_states(self):
-        rows = self.db.dirty_alert_states()
+    def _push_security_alerts(self):
+        """Kirim isi notifikasi baru. ignore-duplicates: tidak menimpa status yang sudah diubah di Supabase."""
+        fields = ("log_uuid", "alert_type", "severity", "title", "description", "plate", "rfid_uid",
+                  "confidence", "is_read", "dismissed")
+        while True:
+            rows = self.db.pending_security_alerts(100)
+            if not rows:
+                return
+            payload = []
+            for r in rows:
+                item = {k: r[k] for k in fields}
+                item["log_uuid"] = str(r["log_uuid"])
+                item["created_at"] = r["created_at"].isoformat()
+                item["confidence"] = float(r["confidence"]) if r["confidence"] is not None else None
+                payload.append(item)
+            res = self._req('POST', 'security_alerts?on_conflict=log_uuid', json=payload,
+                            headers={"Prefer": "resolution=ignore-duplicates,return=minimal"})
+            if res.status_code not in (200, 201, 204):
+                print(f"  [SYNC WARN] Security Notification ditolak Supabase ({res.status_code}): {res.text[:120]}")
+            else:
+                print(f"  [SYNC] {len(rows)} Security Notification tercatat di Supabase.")
+            # Status TRUE yang terkirim bersama isinya tidak perlu dikirim ulang lewat PATCH
+            self.db.mark_security_alerts_synced([r["log_uuid"] for r in rows])
+            self.db.mark_alert_status_synced(rows)
+
+    def _push_alert_status(self):
+        rows = self.db.dirty_alert_status()
         if not rows:
             return
-        # Kirim hanya kolom bernilai TRUE: upsert merge tidak pernah menimpa TRUE di Supabase menjadi FALSE.
-        # PostgREST mewajibkan semua objek dalam satu batch memiliki kunci yang sama, jadi dikelompokkan.
+        # PATCH hanya kolom bernilai TRUE: status di Supabase tidak pernah kembali menjadi FALSE.
         groups = {}
         for r in rows:
             keys = tuple(k for k in ("is_read", "dismissed") if r[k])
             groups.setdefault(keys, []).append(r)
         for keys, items in groups.items():
-            if keys:
-                payload = [{"log_uuid": str(r["log_uuid"]), **{k: True for k in keys}} for r in items]
-                res = self._req('POST', 'alert_states?on_conflict=log_uuid', json=payload,
-                                headers={"Prefer": "resolution=merge-duplicates,return=minimal"})
-                if res.status_code not in (200, 201, 204):
-                    print(f"  [SYNC WARN] Status notifikasi ditolak Supabase ({res.status_code}): {res.text[:120]}")
-            self.db.mark_alert_states_synced(items)
+            for i in range(0, len(items), 100):
+                chunk = items[i:i + 100]
+                if keys:
+                    ids = ",".join(str(r["log_uuid"]) for r in chunk)
+                    res = self._req('PATCH', f"security_alerts?log_uuid=in.({ids})", json={k: True for k in keys},
+                                    headers={"Prefer": "return=minimal"})
+                    if res.status_code not in (200, 204):
+                        print(f"  [SYNC WARN] Status notifikasi ditolak Supabase ({res.status_code}): {res.text[:120]}")
+                self.db.mark_alert_status_synced(chunk)
 
-    def _pull_alert_states(self):
-        path = 'alert_states?select=log_uuid,is_read,dismissed,updated_at&order=updated_at.asc&limit=1000'
+    def _pull_alert_status(self):
+        """Ambil status dibaca/dihapus yang diubah di Supabase (misal dari dashboard Netlify)."""
+        path = 'security_alerts?select=log_uuid,is_read,dismissed,updated_at&order=updated_at.asc&limit=1000'
         if self._alerts_since:
             path += '&updated_at=gte.' + quote(self._alerts_since)
-        latest, total = self._alerts_since, 0
+        latest = self._alerts_since
         for offset in range(0, 100000, 1000):
             res = self._req('GET', f"{path}&offset={offset}")
             if res.status_code != 200:
                 return
             rows = res.json()
-            total += self.db.apply_remote_alert_states(rows)
+            self.db.apply_remote_alert_status(rows)
             if rows:
                 latest = rows[-1]["updated_at"]
             if len(rows) < 1000:

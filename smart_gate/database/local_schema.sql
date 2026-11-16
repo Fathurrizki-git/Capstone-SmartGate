@@ -63,14 +63,26 @@ ALTER TABLE registered_vehicles ADD CONSTRAINT registered_vehicles_category_chec
 CREATE INDEX IF NOT EXISTS idx_vehicle_logs_unsynced ON vehicle_logs (id) WHERE NOT synced;
 CREATE INDEX IF NOT EXISTS idx_vehicle_logs_created ON vehicle_logs (created_at DESC);
 
--- 5. STATUS SECURITY NOTIFICATION (dibaca / dihapus), sinkron dua arah dengan Supabase alert_states.
---    Kunci = vehicle_logs.client_uuid. Nilai hanya FALSE -> TRUE (digabung dengan OR saat sinkron).
-CREATE TABLE IF NOT EXISTS alert_states (
-  log_uuid UUID PRIMARY KEY,
-  is_read BOOLEAN NOT NULL DEFAULT FALSE,
-  dismissed BOOLEAN NOT NULL DEFAULT FALSE,
-  dirty BOOLEAN NOT NULL DEFAULT FALSE,        -- perubahan lokal yang belum dikirim ke Supabase
-  updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+-- 5. SECURITY NOTIFICATION (dokumentasi + status dibaca/dihapus), sinkron dengan Supabase security_alerts.
+--    Diisi otomatis dari vehicle_logs oleh local_db.py (SECURITY_ALERTS_FROM_LOGS_SQL).
+DROP TABLE IF EXISTS alert_states;
+
+CREATE TABLE IF NOT EXISTS security_alerts (
+  log_uuid UUID PRIMARY KEY,                   -- = vehicle_logs.client_uuid (log asal notifikasi)
+  created_at TIMESTAMPTZ NOT NULL,             -- waktu kejadian (sama dengan log)
+  alert_type VARCHAR(20) NOT NULL CHECK (alert_type IN ('UNREGISTERED', 'RFID_MISMATCH', 'MANUAL_OPEN', 'OCR_LOW')),
+  severity VARCHAR(10) NOT NULL,               -- 'danger' / 'warning' / 'info'
+  title VARCHAR(150) NOT NULL,
+  description TEXT,
+  plate VARCHAR(20),
+  rfid_uid VARCHAR(50),                        -- kartu yang di-tap (kendaraan belum terdaftar)
+  confidence NUMERIC(5, 2),
+  is_read BOOLEAN NOT NULL DEFAULT FALSE,      -- sudah dibaca petugas
+  dismissed BOOLEAN NOT NULL DEFAULT FALSE,    -- dihapus dari daftar notifikasi (log asli tetap ada)
+  updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  synced BOOLEAN NOT NULL DEFAULT FALSE,       -- FALSE = isi notifikasi belum terkirim ke Supabase
+  dirty BOOLEAN NOT NULL DEFAULT FALSE         -- status dibaca/dihapus berubah lokal, belum terkirim
 );
 
-CREATE INDEX IF NOT EXISTS idx_alert_states_dirty ON alert_states (log_uuid) WHERE dirty;
+CREATE INDEX IF NOT EXISTS idx_security_alerts_unsynced ON security_alerts (created_at) WHERE NOT synced;
+CREATE INDEX IF NOT EXISTS idx_security_alerts_dirty ON security_alerts (log_uuid) WHERE dirty;

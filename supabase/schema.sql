@@ -94,31 +94,42 @@ CREATE POLICY "Allow public delete gate_commands" ON public.gate_commands FOR DE
 
 ALTER PUBLICATION supabase_realtime ADD TABLE public.gate_commands;
 
--- 4b. TABEL ALERT STATES (status dibaca / dihapus Security Notification, per log)
---     Kunci = vehicle_logs.client_uuid (sama di Supabase & database lokal Mini PC).
---     Nilai hanya berubah FALSE -> TRUE, sehingga sinkronisasi dua arah tidak pernah bentrok.
-CREATE TABLE IF NOT EXISTS public.alert_states (
-  log_uuid UUID PRIMARY KEY,
-  is_read BOOLEAN NOT NULL DEFAULT FALSE,
-  dismissed BOOLEAN NOT NULL DEFAULT FALSE,
+-- 4b. TABEL SECURITY ALERTS (dokumentasi Security Notification + status dibaca/dihapus)
+--     Dicatat Mini PC dari vehicle_logs lalu dikirim oleh sinkronisasi. Status is_read / dismissed
+--     hanya FALSE -> TRUE (digabung dengan OR), sehingga sinkronisasi dua arah tidak pernah bentrok.
+DROP TABLE IF EXISTS public.alert_states;
+
+CREATE TABLE IF NOT EXISTS public.security_alerts (
+  log_uuid UUID PRIMARY KEY,                   -- = vehicle_logs.client_uuid (log asal notifikasi)
+  created_at TIMESTAMPTZ NOT NULL,             -- waktu kejadian (sama dengan log)
+  alert_type VARCHAR(20) NOT NULL CHECK (alert_type IN ('UNREGISTERED', 'RFID_MISMATCH', 'MANUAL_OPEN', 'OCR_LOW')),
+  severity VARCHAR(10) NOT NULL,               -- 'danger' / 'warning' / 'info'
+  title VARCHAR(150) NOT NULL,
+  description TEXT,
+  plate VARCHAR(20),
+  rfid_uid VARCHAR(50),                        -- kartu yang di-tap (kendaraan belum terdaftar)
+  confidence NUMERIC(5, 2),
+  is_read BOOLEAN NOT NULL DEFAULT FALSE,      -- sudah dibaca petugas
+  dismissed BOOLEAN NOT NULL DEFAULT FALSE,    -- dihapus dari daftar notifikasi (log asli tetap ada)
   updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
 
-DROP TRIGGER IF EXISTS trg_alert_states_updated_at ON public.alert_states;
-CREATE TRIGGER trg_alert_states_updated_at
-  BEFORE UPDATE ON public.alert_states
+DROP TRIGGER IF EXISTS trg_security_alerts_updated_at ON public.security_alerts;
+CREATE TRIGGER trg_security_alerts_updated_at
+  BEFORE UPDATE ON public.security_alerts
   FOR EACH ROW EXECUTE FUNCTION public.set_updated_at();
 
-CREATE INDEX IF NOT EXISTS idx_alert_states_updated ON public.alert_states (updated_at);
+CREATE INDEX IF NOT EXISTS idx_security_alerts_created ON public.security_alerts (created_at DESC);
+CREATE INDEX IF NOT EXISTS idx_security_alerts_updated ON public.security_alerts (updated_at);
 
-ALTER TABLE public.alert_states ENABLE ROW LEVEL SECURITY;
+ALTER TABLE public.security_alerts ENABLE ROW LEVEL SECURITY;
 
-DROP POLICY IF EXISTS "Allow public read alert_states" ON public.alert_states;
-DROP POLICY IF EXISTS "Allow public insert alert_states" ON public.alert_states;
-DROP POLICY IF EXISTS "Allow public update alert_states" ON public.alert_states;
-CREATE POLICY "Allow public read alert_states" ON public.alert_states FOR SELECT USING (true);
-CREATE POLICY "Allow public insert alert_states" ON public.alert_states FOR INSERT WITH CHECK (true);
-CREATE POLICY "Allow public update alert_states" ON public.alert_states FOR UPDATE USING (true);
+DROP POLICY IF EXISTS "Allow public read security_alerts" ON public.security_alerts;
+DROP POLICY IF EXISTS "Allow public insert security_alerts" ON public.security_alerts;
+DROP POLICY IF EXISTS "Allow public update security_alerts" ON public.security_alerts;
+CREATE POLICY "Allow public read security_alerts" ON public.security_alerts FOR SELECT USING (true);
+CREATE POLICY "Allow public insert security_alerts" ON public.security_alerts FOR INSERT WITH CHECK (true);
+CREATE POLICY "Allow public update security_alerts" ON public.security_alerts FOR UPDATE USING (true);
 
 -- ============================================================
 -- 5. DATA AWAL (SEED DATA CONTOH)

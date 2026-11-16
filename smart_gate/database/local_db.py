@@ -31,6 +31,39 @@ VEHICLE_FIELDS = ("plate", "owner", "category", "nim_nip", "rfid_uid")
 LOG_FIELDS = ("plate", "name", "category", "nim_nip", "status", "method", "direction", "confidence", "region")
 PBKDF2_ITERATIONS = 200_000
 
+# Catat Security Notification dari vehicle_logs (aturan sama dengan alertFromLog() di web_dashboard/index.html).
+# Tanpa karakter persen literal (chr(37)) karena dipakai juga dengan parameter psycopg.
+SECURITY_ALERTS_FROM_LOGS_SQL = """
+INSERT INTO security_alerts (log_uuid, created_at, alert_type, severity, title, description, plate, rfid_uid, confidence)
+SELECT l.client_uuid, l.created_at, x.t,
+  CASE x.t WHEN 'RFID_MISMATCH' THEN 'danger' WHEN 'MANUAL_OPEN' THEN 'info' ELSE 'warning' END,
+  CASE x.t
+    WHEN 'MANUAL_OPEN' THEN CASE WHEN l.method = 'WEB_MANUAL' THEN 'Palang Gerbang Dibuka Manual via Website'
+                                 ELSE 'Palang Dibuka Manual (Push Button)' END
+    WHEN 'RFID_MISMATCH' THEN 'Kartu RFID Tidak Sesuai (Beda Pemilik)'
+    WHEN 'UNREGISTERED' THEN 'Kendaraan Belum Terdaftar'
+    ELSE 'Plat Nomor Tidak Terbaca Jelas' END,
+  CASE x.t
+    WHEN 'MANUAL_OPEN' THEN 'Palang keluar dibuka manual oleh petugas. Plat: ' || l.plate || '.'
+    WHEN 'RFID_MISMATCH' THEN 'Plat ' || l.plate || ' terdeteksi, namun kartu RFID bukan milik pemilik terdaftar. Palang ditahan tertutup.'
+    WHEN 'UNREGISTERED' THEN 'Plat ' || l.plate || COALESCE(' (Tap RFID: ' || r.uid || ')', '') || ' belum terdaftar.'
+    ELSE 'Plat ' || l.plate || ' terbaca dengan confidence rendah (' || ROUND(l.confidence) || chr(37) || ').' END,
+  l.plate, r.uid, l.confidence
+FROM vehicle_logs l
+CROSS JOIN LATERAL (SELECT CASE
+    WHEN l.method IN ('WEB_MANUAL', 'MANUAL') THEN 'MANUAL_OPEN'
+    WHEN l.status = 'TIDAK COCOK' THEN 'RFID_MISMATCH'
+    WHEN l.status = 'TIDAK TERDAFTAR' THEN 'UNREGISTERED'
+    WHEN ROUND(l.confidence) < 80 THEN 'OCR_LOW'
+  END AS t) x
+CROSS JOIN LATERAL (SELECT NULLIF(TRIM(CASE
+    WHEN LEFT(l.nim_nip, 5) = 'RFID:' THEN SUBSTRING(l.nim_nip FROM 6)
+    WHEN LEFT(l.plate, 5) = 'RFID-' THEN SUBSTRING(l.plate FROM 6)
+  END), '') AS uid) r
+WHERE x.t IS NOT NULL {extra}
+ON CONFLICT (log_uuid) DO NOTHING
+"""
+
 
 class LocalDBError(Exception):
     """Database lokal tidak dapat diakses (service PostgreSQL mati / belum dikonfigurasi)."""
@@ -105,6 +138,14 @@ class LocalDB:
         try:
             with self.pool.connection() as conn:
                 conn.execute(schema_sql)
+                # Log lama yang memicu peringatan dicatat ke security_alerts (idempoten).
+                # Gagal di sini tidak boleh membuat database dianggap offline (gerbang tetap jalan).
+                try:
+                    added = self.refresh_security_alerts(conn=conn)
+                    if added:
+                        print(f"[OK] {added} Security Notification dari log lama dicatat ke tabel security_alerts.")
+                except Exception as e:
+                    print(f"[WARN] Gagal mencatat Security Notification dari log lama: {_first_line(e)}")
         except Exception as e:
             raise LocalDBError(_first_line(e))
         self._schema_ready = True
@@ -270,17 +311,23 @@ class LocalDB:
         values = {k: payload.get(k) for k in LOG_FIELDS}
         values["region"] = values["region"] or "id"
         values["client_uuid"] = str(uuid.uuid4())
-        return self._query(
+        row = self._query(
             """INSERT INTO vehicle_logs (client_uuid, plate, name, category, nim_nip, status, method, direction, confidence, region)
                VALUES (%(client_uuid)s, %(plate)s, %(name)s, %(category)s, %(nim_nip)s, %(status)s, %(method)s,
                        %(direction)s, %(confidence)s, %(region)s) RETURNING *""",
             values, one=True)
+        if row:
+            try:
+                self.refresh_security_alerts(log_id=row["id"])  # dicatat ke security_alerts jika memicu peringatan
+            except Exception as e:  # log kendaraan tetap tersimpan walau pencatatan notifikasi gagal
+                print(f"[WARN] Gagal mencatat Security Notification untuk log #{row['id']}: {_first_line(e)}")
+        return row
 
     def list_logs(self, limit=150):
-        """Log terbaru + status Security Notification (alert_read / alert_dismissed) dari alert_states."""
+        """Log terbaru + status Security Notification (alert_read / alert_dismissed) dari security_alerts."""
         return self._query(
             "SELECT l.*, COALESCE(a.is_read, FALSE) AS alert_read, COALESCE(a.dismissed, FALSE) AS alert_dismissed "
-            "FROM vehicle_logs l LEFT JOIN alert_states a ON a.log_uuid = l.client_uuid "
+            "FROM vehicle_logs l LEFT JOIN security_alerts a ON a.log_uuid = l.client_uuid "
             "ORDER BY l.created_at DESC, l.id DESC LIMIT %s", (int(limit),))
 
     def list_out_times(self, since, until, limit=50000):
@@ -297,54 +344,70 @@ class LocalDB:
     def count_pending_logs(self) -> int:
         return self._query("SELECT COUNT(*) AS n FROM vehicle_logs WHERE NOT synced", one=True)["n"]
 
-    # ── Status Security Notification (alert_states) ──
-    # Nilai is_read / dismissed hanya FALSE -> TRUE dan digabung dengan OR, jadi tidak ada konflik sinkron.
+    # ── Security Notification (tabel security_alerts) ──
+    # Isi notifikasi dibuat dari vehicle_logs (aturan sama dengan alertFromLog() di dashboard).
+    # Status is_read / dismissed hanya FALSE -> TRUE dan digabung dengan OR, jadi tidak ada konflik sinkron.
+    def refresh_security_alerts(self, log_id=None, conn=None) -> int:
+        """Catat notifikasi untuk log yang memicu peringatan (semua log, atau satu log_id). Idempoten."""
+        sql = SECURITY_ALERTS_FROM_LOGS_SQL.format(extra="AND l.id = %s" if log_id is not None else "")
+        params = (int(log_id),) if log_id is not None else None
+        if conn is not None:
+            return conn.execute(sql, params).rowcount
+        self._query(sql, params)
+        return 0
+
     def mark_alerts(self, log_uuids: list, read: bool = False, dismissed: bool = False):
         """Tandai notifikasi dibaca / dihapus dari dashboard lokal (antre dikirim ke Supabase)."""
         if not log_uuids or not (read or dismissed):
             return
         self._query(
-            """INSERT INTO alert_states (log_uuid, is_read, dismissed, dirty)
-               SELECT u, %s, %s, TRUE FROM unnest(%s::uuid[]) AS u
-               ON CONFLICT (log_uuid) DO UPDATE SET
-                 is_read = alert_states.is_read OR EXCLUDED.is_read,
-                 dismissed = alert_states.dismissed OR EXCLUDED.dismissed,
-                 dirty = TRUE, updated_at = NOW()""",
+            """UPDATE security_alerts SET
+                 is_read = is_read OR %s, dismissed = dismissed OR %s, dirty = TRUE, updated_at = NOW()
+               WHERE log_uuid = ANY(%s::uuid[])""",
             (bool(read), bool(dismissed), list(dict.fromkeys(str(u) for u in log_uuids))))
 
-    def dirty_alert_states(self, limit=500):
-        return self._query("SELECT log_uuid, is_read, dismissed FROM alert_states WHERE dirty LIMIT %s", (int(limit),))
+    def pending_security_alerts(self, limit=100):
+        """Notifikasi yang isinya belum terkirim ke Supabase."""
+        return self._query("SELECT * FROM security_alerts WHERE NOT synced ORDER BY created_at LIMIT %s", (int(limit),))
 
-    def mark_alert_states_synced(self, rows: list):
+    def mark_security_alerts_synced(self, log_uuids: list):
+        if log_uuids:
+            self._query("UPDATE security_alerts SET synced = TRUE WHERE log_uuid = ANY(%s::uuid[])",
+                        ([str(u) for u in log_uuids],))
+
+    def dirty_alert_status(self, limit=500):
+        """Status dibaca/dihapus yang berubah lokal dan sudah ada barisnya di Supabase."""
+        return self._query("SELECT log_uuid, is_read, dismissed FROM security_alerts WHERE dirty AND synced LIMIT %s",
+                           (int(limit),))
+
+    def mark_alert_status_synced(self, rows: list):
         """Bersihkan flag dirty hanya jika nilainya masih sama dengan yang terkirim (perubahan baru tetap antre)."""
         if rows:
             self._query(
-                """UPDATE alert_states a SET dirty = FALSE
+                """UPDATE security_alerts a SET dirty = FALSE
                    FROM unnest(%s::uuid[], %s::bool[], %s::bool[]) AS s(u, r, d)
                    WHERE a.log_uuid = s.u AND a.is_read = s.r AND a.dismissed = s.d""",
                 ([str(r["log_uuid"]) for r in rows], [bool(r["is_read"]) for r in rows],
                  [bool(r["dismissed"]) for r in rows]))
 
-    def apply_remote_alert_states(self, remote_rows: list) -> int:
-        """Gabungkan status dari Supabase (OR). Baris lokal yang masih dirty tetap dikirim nanti."""
-        merged = {}  # satu uuid hanya boleh muncul sekali dalam INSERT ... ON CONFLICT
+    def apply_remote_alert_status(self, remote_rows: list) -> int:
+        """Gabungkan status dari Supabase (OR), misal notifikasi ditandai dibaca di dashboard Netlify."""
+        merged = {}  # satu uuid hanya boleh muncul sekali dalam UPDATE ... FROM
         for r in remote_rows:
             u = r.get("log_uuid")
             if u:
                 m = merged.setdefault(str(u), {"log_uuid": str(u), "is_read": False, "dismissed": False})
                 m["is_read"] = m["is_read"] or bool(r.get("is_read"))
                 m["dismissed"] = m["dismissed"] or bool(r.get("dismissed"))
-        rows = list(merged.values())
+        rows = [m for m in merged.values() if m["is_read"] or m["dismissed"]]
         if not rows:
             return 0
         self._query(
-            """INSERT INTO alert_states (log_uuid, is_read, dismissed, dirty)
-               SELECT u, r, d, FALSE FROM unnest(%s::uuid[], %s::bool[], %s::bool[]) AS s(u, r, d)
-               ON CONFLICT (log_uuid) DO UPDATE SET
-                 is_read = alert_states.is_read OR EXCLUDED.is_read,
-                 dismissed = alert_states.dismissed OR EXCLUDED.dismissed""",
-            ([str(r["log_uuid"]) for r in rows], [bool(r.get("is_read")) for r in rows],
-             [bool(r.get("dismissed")) for r in rows]))
+            """UPDATE security_alerts a SET
+                 is_read = a.is_read OR s.r, dismissed = a.dismissed OR s.d, updated_at = NOW()
+               FROM unnest(%s::uuid[], %s::bool[], %s::bool[]) AS s(u, r, d)
+               WHERE a.log_uuid = s.u AND ((s.r AND NOT a.is_read) OR (s.d AND NOT a.dismissed))""",
+            ([m["log_uuid"] for m in rows], [m["is_read"] for m in rows], [m["dismissed"] for m in rows]))
         return len(rows)
 
     def mark_logs_synced(self, log_ids: list):
