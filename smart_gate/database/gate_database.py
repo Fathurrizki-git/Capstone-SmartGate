@@ -156,7 +156,8 @@ class GateDatabase:
             print(f"  [MATCHED OK]{bind_tag} Terdaftar: {info['plate']} | {info['owner_name']} "
                   f"({info['category']} - NIM/NIP: {info['nim_nip']}) [{method}]")
         else:
-            print(f"  [UNREGISTERED] Tidak Terdaftar: {info['plate']} | Status: {info['status']} [{method}]")
+            label = "[UNREGISTERED] Tidak Terdaftar" if info["status"] == "TIDAK TERDAFTAR" else f"[{info['status']}]"
+            print(f"  {label}: {info['plate']} | Status: {info['status']} [{method}]")
 
         try:
             self.local.insert_log(payload)

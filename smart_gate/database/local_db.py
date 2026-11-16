@@ -30,6 +30,8 @@ SCHEMA_FILE = os.path.join(os.path.dirname(os.path.abspath(__file__)), "local_sc
 VEHICLE_FIELDS = ("plate", "owner", "category", "nim_nip", "rfid_uid")
 LOG_FIELDS = ("plate", "name", "category", "nim_nip", "status", "method", "direction", "confidence", "region")
 PBKDF2_ITERATIONS = 200_000
+# Status log kejadian gagal sebelum verifikasi (bukan kendaraan keluar; tidak dihitung di Trendline)
+GATE_EVENT_STATUSES = ("RFID TIMEOUT",)
 
 # Catat Security Notification dari vehicle_logs (aturan sama dengan alertFromLog() di web_dashboard/index.html).
 # Tanpa karakter persen literal (chr(37)) karena dipakai juga dengan parameter psycopg.
@@ -42,11 +44,13 @@ SELECT l.client_uuid, l.created_at, x.t,
                                  ELSE 'Palang Dibuka Manual (Push Button)' END
     WHEN 'RFID_MISMATCH' THEN 'Kartu RFID Tidak Sesuai (Beda Pemilik)'
     WHEN 'UNREGISTERED' THEN 'Kendaraan Belum Terdaftar'
+    WHEN 'RFID_TIMEOUT' THEN 'Kartu RFID Tidak Di-tap'
     ELSE 'Plat Nomor Tidak Terbaca Jelas' END,
   CASE x.t
     WHEN 'MANUAL_OPEN' THEN 'Palang keluar dibuka manual oleh petugas. Plat: ' || l.plate || '.'
     WHEN 'RFID_MISMATCH' THEN 'Plat ' || l.plate || ' terdeteksi, namun kartu RFID bukan milik pemilik terdaftar. Palang ditahan tertutup.'
     WHEN 'UNREGISTERED' THEN 'Plat ' || l.plate || COALESCE(' (Tap RFID: ' || r.uid || ')', '') || ' belum terdaftar.'
+    WHEN 'RFID_TIMEOUT' THEN 'Plat ' || l.plate || ' terdeteksi, namun kartu RFID tidak di-tap sampai batas waktu. Palang tetap tertutup.'
     ELSE 'Plat ' || l.plate || ' terbaca dengan confidence rendah (' || ROUND(l.confidence) || chr(37) || ').' END,
   l.plate, r.uid, l.confidence
 FROM vehicle_logs l
@@ -54,6 +58,7 @@ CROSS JOIN LATERAL (SELECT CASE
     WHEN l.method IN ('WEB_MANUAL', 'MANUAL') THEN 'MANUAL_OPEN'
     WHEN l.status = 'TIDAK COCOK' THEN 'RFID_MISMATCH'
     WHEN l.status = 'TIDAK TERDAFTAR' THEN 'UNREGISTERED'
+    WHEN l.status = 'RFID TIMEOUT' THEN 'RFID_TIMEOUT'
     WHEN ROUND(l.confidence) < 80 THEN 'OCR_LOW'
   END AS t) x
 CROSS JOIN LATERAL (SELECT NULLIF(TRIM(CASE
@@ -330,8 +335,8 @@ class LocalDB:
         """Waktu (created_at) semua kendaraan keluar dalam rentang [since, until) — untuk grafik Trendline."""
         rows = self._query(
             "SELECT created_at FROM vehicle_logs WHERE created_at >= %s AND created_at < %s "
-            "AND direction <> 'IN' ORDER BY created_at LIMIT %s",
-            (since, until, int(limit)))
+            "AND direction <> 'IN' AND status <> ALL(%s) ORDER BY created_at LIMIT %s",
+            (since, until, list(GATE_EVENT_STATUSES), int(limit)))
         return [r["created_at"] for r in rows]
 
     def pending_logs(self, limit=100):

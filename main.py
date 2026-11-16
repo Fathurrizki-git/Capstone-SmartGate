@@ -531,6 +531,23 @@ class SmartParkingExitGate:
 
         self.hw.lcd.display_standby()
 
+    def _log_gate_event(self, status: str, plate: str = "UNKNOWN", confidence: float = 0.0):
+        """
+        Catat kejadian gagal sebelum verifikasi ganda (plat terbaca tetapi RFID tidak di-tap)
+        agar muncul di Vehicle Log & Security Notification. Tidak dihitung sebagai kendaraan keluar.
+        """
+        info = {
+            "matched": False,
+            "plate": (plate or "UNKNOWN").strip().upper() or "UNKNOWN",
+            "owner_name": "-",
+            "category": "-",
+            "nim_nip": "-",
+            "rfid_uid": "",
+            "status": status,
+        }
+        self.db.log_vehicle(plate_text=info["plate"], confidence=confidence, direction="OUT",
+                            method="ALPR", custom_info=info)
+
     def process_dual_verification(self, initial_rfid: str = None, frame = None):
         """
         Alur Verifikasi Ganda:
@@ -614,6 +631,16 @@ class SmartParkingExitGate:
         needs_bind = bool(veh_precheck.get("matched") and veh_precheck.get("needs_rfid_bind"))
         if needs_bind:
             print(f"  [AUTO-BIND SIAP \u26a1] Plat '{plate_text}' ({veh_precheck.get('owner_name')}) terdaftar mandiri & menunggu aktivasi kartu RFID pertama!")
+
+        # Plat tidak terdaftar (atau database lokal mati): langsung tolak tanpa menunggu tap RFID,
+        # karena tap kartu apa pun tetap tidak bisa lolos verifikasi. Log + Security Notification
+        # langsung tercatat. Kartu bisa diikat nanti lewat Quick Register / Auto-Bind saat tap pertama.
+        # Jika kartu sudah di-tap duluan (initial_rfid), tetap lewat verifikasi agar UID-nya tercatat.
+        if not veh_precheck.get("matched") and not initial_rfid:
+            print(f"  [DITOLAK LANGSUNG] Plat '{plate_text}' tidak terdaftar \u2014 tidak menunggu tap RFID.")
+            self.handle_exit_failed({**veh_precheck, "confidence": conf},
+                                    reason=veh_precheck.get("reason", "UNREGISTERED"))
+            return
 
         rfid_uid = initial_rfid
         if not rfid_uid:
@@ -715,6 +742,7 @@ class SmartParkingExitGate:
 
         if not rfid_uid:
             print("  [TIMEOUT] Batas waktu tap RFID habis.")
+            self._log_gate_event("RFID TIMEOUT", plate=plate_text, confidence=conf)
             self.hw.lcd.display(
                 "WAKTU TAP HABIS!    ",
                 "KARTU BELUM DI-TAP  ",

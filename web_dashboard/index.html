@@ -1342,6 +1342,10 @@ body.modal-open{overflow:hidden}
       a.type = 'warning'; a.tag = 'UNREGISTERED'; a.canQuickReg = true;
       a.title = 'Kendaraan Belum Terdaftar';
       a.desc = 'Plat ' + l.plate + (a.rfid ? (' (Tap RFID: ' + a.rfid + ')') : '') + ' belum terdaftar. Klik Quick Register untuk mendaftarkan dalam 15 detik.';
+    } else if (l.status === 'RFID TIMEOUT') {
+      a.type = 'warning'; a.tag = 'RFID TIMEOUT'; a.canQuickReg = true;
+      a.title = 'Kartu RFID Tidak Di-tap';
+      a.desc = 'Plat ' + l.plate + ' terdeteksi, namun kartu RFID tidak di-tap sampai batas waktu. Palang tetap tertutup.';
     } else if (l.conf < 80) {
       a.type = 'warning'; a.tag = 'OCR FAILED';
       a.title = 'Plat Nomor Tidak Terbaca Jelas';
@@ -1525,7 +1529,7 @@ body.modal-open{overflow:hidden}
       '<dt>Nama</dt><dd>' + esc(l.name) + '</dd>' +
       '<dt>Kategori</dt><dd>' + esc(titleCase(l.category)) + '</dd>' +
       '<dt>NIM / NIP</dt><dd>' + esc(l.nim_nip || '-') + '</dd>' +
-      '<dt>Status</dt><dd>' + (l.status === 'TERDAFTAR' ? '<span class="up">&#10003; TERDAFTAR</span>' : '<span style="color:var(--orange)">&#9888; BELUM TERDAFTAR</span>') + '</dd>' +
+      '<dt>Status</dt><dd>' + (l.status === 'TERDAFTAR' ? '<span class="up">&#10003; TERDAFTAR</span>' : '<span style="color:var(--orange)">&#9888; ' + esc(l.status === 'TIDAK TERDAFTAR' ? 'BELUM TERDAFTAR' : l.status) + '</span>') + '</dd>' +
       '<dt>Waktu</dt><dd>' + esc(fmtLongDate(l.ts)) + ' &bull; ' + fmtHMS(l.ts) + ' WIB</dd>' +
       '<dt>Confidence</dt><dd>' + l.conf + '%' + (l.conf < 80 ? ' <span style="color:var(--orange)">(perlu verifikasi)</span>' : '') + '</dd>' +
       '<dt>Total aktivitas</dt><dd>' + history + ' tercatat</dd>' +
@@ -1552,7 +1556,7 @@ body.modal-open{overflow:hidden}
     var ic = a.type === 'danger' ? 'alert' : a.type === 'warning' ? 'alert' : 'info';
     var iconColor = a.type === 'danger' ? '#ff4d4f' : a.type === 'warning' ? '#ffb547' : '#2cd9ff';
     var tagClass = 'guest';
-    if (a.tag === 'RFID MISMATCH') tagClass = 'rfid';
+    if (a.tag === 'RFID MISMATCH' || a.tag === 'RFID TIMEOUT') tagClass = 'rfid';
     else if (a.tag === 'OCR FAILED') tagClass = 'ocr';
     else if (a.tag === 'MANUAL OPEN') tagClass = 'manual';
 
@@ -1561,6 +1565,8 @@ body.modal-open{overflow:hidden}
       statusDesc = 'AKSES DITOLAK: Kartu RFID Berbeda dengan Pemilik Plat Terdaftar';
     } else if (a.tag === 'UNREGISTERED') {
       statusDesc = 'AKSES DITOLAK: Kendaraan Belum Terdaftar di Database';
+    } else if (a.tag === 'RFID TIMEOUT') {
+      statusDesc = 'AKSES DITOLAK: Kartu RFID Tidak Di-tap Sampai Batas Waktu';
     } else if (a.tag === 'OCR FAILED') {
       statusDesc = 'AKSES DITOLAK: Plat Nomor Tidak Terbaca Jelas / Buram';
     } else if (a.tag === 'MANUAL OPEN') {
@@ -1643,7 +1649,7 @@ body.modal-open{overflow:hidden}
       var ic = a.type === 'danger' ? 'alert' : a.type === 'warning' ? 'alert' : 'info';
       var icColor = a.type === 'danger' ? '#ff4d4f' : a.type === 'warning' ? '#ffb547' : '#2cd9ff';
       var tagClass = 'guest';
-      if (a.tag === 'RFID MISMATCH') tagClass = 'rfid';
+      if (a.tag === 'RFID MISMATCH' || a.tag === 'RFID TIMEOUT') tagClass = 'rfid';
       else if (a.tag === 'OCR FAILED') tagClass = 'ocr';
       else if (a.tag === 'MANUAL OPEN') tagClass = 'manual';
 
@@ -1804,7 +1810,8 @@ body.modal-open{overflow:hidden}
   }
 
   // Data grafik: jumlah kendaraan keluar (gerbang keluar saja)
-  function isOut(l) { return l.dir !== 'IN'; }
+  // Kendaraan keluar: semua log arah OUT kecuali kejadian RFID tidak di-tap (kendaraan tidak lewat)
+  function isOut(l) { return l.dir !== 'IN' && l.status !== 'RFID TIMEOUT'; }
   // Grafik Dashboard: per jam hari ini (dari log yang sudah dimuat)
   function trendData() {
     var now = new Date(), labels = [], tips = [], outD = [], i;
@@ -1876,7 +1883,7 @@ body.modal-open{overflow:hidden}
     }
     var all = [];
     for (var off = 0; off < 20000; off += 1000) {
-      var rows = await fetchRows(null, 'vehicle_logs?select=created_at&direction=neq.IN&created_at=gte.' + s + '&created_at=lt.' + u + '&order=created_at.asc&limit=1000&offset=' + off, null);
+      var rows = await fetchRows(null, 'vehicle_logs?select=created_at&direction=neq.IN&status=neq.RFID%20TIMEOUT&created_at=gte.' + s + '&created_at=lt.' + u + '&order=created_at.asc&limit=1000&offset=' + off, null);
       if (!rows) return null;
       all = all.concat(rows);
       if (rows.length < 1000) break;
@@ -1992,7 +1999,7 @@ body.modal-open{overflow:hidden}
   function alertHTML(a, compact) {
     var ic = a.type === 'danger' ? 'alert' : a.type === 'warning' ? 'alert' : 'info';
     var tagClass = 'guest';
-    if (a.tag === 'RFID MISMATCH') tagClass = 'rfid';
+    if (a.tag === 'RFID MISMATCH' || a.tag === 'RFID TIMEOUT') tagClass = 'rfid';
     else if (a.tag === 'OCR FAILED') tagClass = 'ocr';
     else if (a.tag === 'MANUAL OPEN') tagClass = 'manual';
 
@@ -2708,12 +2715,13 @@ body.modal-open{overflow:hidden}
           }
           // Kendaraan tidak terdaftar: nama "-" dan kategori "Belum Terdaftar" (bukan kategori default dari Python)
           var unreg = r.status === 'TIDAK TERDAFTAR';
+          var rfidTimeout = r.status === 'RFID TIMEOUT';  // plat terbaca, kartu tidak di-tap
           return {
             id: r.id,
             ts: new Date(r.created_at),
-            name: unreg ? '-' : (r.name || 'Civitas Untirta'),
+            name: (unreg || rfidTimeout) ? '-' : (r.name || 'Civitas Untirta'),
             plate: r.plate,
-            category: unreg ? 'Belum Terdaftar' : (r.category || 'STUDENT'),
+            category: unreg ? 'Belum Terdaftar' : rfidTimeout ? 'RFID Tidak Di-tap' : (r.category || 'STUDENT'),
             unregistered: unreg,
             dir: r.direction || 'IN',
             conf: Math.round(Number(r.confidence) || 90),

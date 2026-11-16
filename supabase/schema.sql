@@ -102,7 +102,7 @@ DROP TABLE IF EXISTS public.alert_states;
 CREATE TABLE IF NOT EXISTS public.security_alerts (
   log_uuid UUID PRIMARY KEY,                   -- = vehicle_logs.client_uuid (log asal notifikasi)
   created_at TIMESTAMPTZ NOT NULL,             -- waktu kejadian (sama dengan log)
-  alert_type VARCHAR(20) NOT NULL CHECK (alert_type IN ('UNREGISTERED', 'RFID_MISMATCH', 'MANUAL_OPEN', 'OCR_LOW')),
+  alert_type VARCHAR(20) NOT NULL CHECK (alert_type IN ('UNREGISTERED', 'RFID_MISMATCH', 'RFID_TIMEOUT', 'MANUAL_OPEN', 'OCR_LOW')),
   severity VARCHAR(10) NOT NULL,               -- 'danger' / 'warning' / 'info'
   title VARCHAR(150) NOT NULL,
   description TEXT,
@@ -118,6 +118,11 @@ ALTER TABLE public.security_alerts
   DROP COLUMN IF EXISTS is_read,
   DROP COLUMN IF EXISTS dismissed,
   DROP COLUMN IF EXISTS updated_at;
+
+-- Daftar jenis notifikasi (tambah RFID_TIMEOUT: plat terbaca tetapi kartu tidak di-tap)
+ALTER TABLE public.security_alerts DROP CONSTRAINT IF EXISTS security_alerts_alert_type_check;
+ALTER TABLE public.security_alerts ADD CONSTRAINT security_alerts_alert_type_check
+  CHECK (alert_type IN ('UNREGISTERED', 'RFID_MISMATCH', 'RFID_TIMEOUT', 'MANUAL_OPEN', 'OCR_LOW'));
 
 CREATE INDEX IF NOT EXISTS idx_security_alerts_created ON public.security_alerts (created_at DESC);
 
