@@ -1296,9 +1296,8 @@ body.modal-open{overflow:hidden}
     loaded: false           // true setelah load pertama dari Supabase
   };
 
-  // Status baca/hapus notifikasi: disimpan di database (kolom is_read/dismissed tabel security_alerts, kunci = client_uuid log)
-  // — PostgreSQL lokal (dashboard :5050) atau Supabase (Netlify) — dan di-cache di browser (localStorage)
-  // agar tetap berfungsi saat offline / sebelum migrasi Supabase. Nilai hanya FALSE -> TRUE.
+  // Status baca/hapus notifikasi disimpan di browser (localStorage), kunci = client_uuid log.
+  // Isi notifikasi terdokumentasi di tabel security_alerts (dicatat Mini PC), bukan statusnya.
   var ALERT_STORE = 'spg_alert_meta';
   var alertMeta = (function () {
     try {
@@ -1307,75 +1306,16 @@ body.modal-open{overflow:hidden}
     } catch (e) { return { read: {}, dismissed: {} }; }
   })();
   var derivedAlertKeys = [];
-  var lastAlertReconcile = 0;
   function alertKey(l) { return l.uuid || ('id:' + l.id); }
   function saveAlertCache() {
     try { localStorage.setItem(ALERT_STORE, JSON.stringify(alertMeta)); } catch (e) { }
   }
-
-  // Kirim status ke database. Hanya notifikasi yang punya client_uuid yang bisa disimpan di server.
-  async function pushAlertStates(readKeys, dismissedKeys) {
-    var isUuid = function (k) { return k && k.indexOf('id:') !== 0; };
-    readKeys = (readKeys || []).filter(isUuid);
-    dismissedKeys = (dismissedKeys || []).filter(isUuid);
-    if (!readKeys.length && !dismissedKeys.length) return;
-    try {
-      if (USE_LOCAL_API) {
-        if (readKeys.length) await localApi('/api/alerts/state', { uuids: readKeys, read: true });
-        if (dismissedKeys.length) await localApi('/api/alerts/state', { uuids: dismissedKeys, dismissed: true });
-        return;
-      }
-      var cfg = window.SUPABASE_CONFIG || {};
-      if (!cfg.url || !cfg.anonKey || cfg.url.includes('YOUR_PROJECT_ID')) return;
-      // Baris security_alerts dicatat Mini PC; dashboard hanya mengubah status (PATCH kolom TRUE saja)
-      var patch = async function (keys, body) {
-        for (var i = 0; i < keys.length; i += 100) {
-          var res = await fetch(cfg.url.replace(/\/+$/, '') + '/rest/v1/security_alerts?log_uuid=in.(' + keys.slice(i, i + 100).join(',') + ')', {
-            method: 'PATCH',
-            headers: {
-              'apikey': cfg.anonKey,
-              'Authorization': 'Bearer ' + cfg.anonKey,
-              'Content-Type': 'application/json',
-              'Prefer': 'return=minimal'
-            },
-            body: JSON.stringify(body)
-          });
-          if (!res.ok) throw new Error('HTTP ' + res.status);
-        }
-      };
-      if (readKeys.length) await patch(readKeys, { is_read: true });
-      if (dismissedKeys.length) await patch(dismissedKeys, { dismissed: true });
-    } catch (e) {
-      console.warn('Gagal menyimpan status notifikasi ke database (dicoba ulang otomatis):', e);
-    }
-  }
-
-  // Netlify: ambil status dari Supabase untuk log yang sedang dimuat. null = tabel belum ada / gagal.
-  async function fetchSupabaseAlertStates(uuids) {
-    var cfg = window.SUPABASE_CONFIG || {};
-    if (!uuids.length || !cfg.url || !cfg.anonKey || cfg.url.includes('YOUR_PROJECT_ID')) return null;
-    var map = {};
-    for (var i = 0; i < uuids.length; i += 100) {
-      var chunk = uuids.slice(i, i + 100);
-      var rows = await fetchRows(null, 'security_alerts?select=log_uuid,is_read,dismissed&log_uuid=in.(' + chunk.join(',') + ')', null);
-      if (!rows) return null;
-      rows.forEach(function (r) { map[r.log_uuid] = r; });
-    }
-    return map;
-  }
-
-  // Dipanggil setelah status berubah di UI (dibaca / dihapus): simpan ke cache + kirim yang baru ke database
+  // Dipanggil setelah status berubah di UI (dibaca / dihapus)
   function syncAlertMeta() {
-    var present = {}, newRead = [], newDismissed = [];
-    state.alerts.forEach(function (a) {
-      present[a.key] = true;
-      if (a.read && !alertMeta.read[a.key]) { alertMeta.read[a.key] = 1; newRead.push(a.key); }
-    });
-    derivedAlertKeys.forEach(function (k) {
-      if (!present[k] && !alertMeta.dismissed[k]) { alertMeta.dismissed[k] = 1; newDismissed.push(k); }
-    });
+    var present = {};
+    state.alerts.forEach(function (a) { present[a.key] = true; if (a.read) alertMeta.read[a.key] = 1; });
+    derivedAlertKeys.forEach(function (k) { if (!present[k]) alertMeta.dismissed[k] = 1; });
     saveAlertCache();
-    pushAlertStates(newRead, newDismissed);
   }
 
   // Ubah satu baris log menjadi notifikasi keamanan (atau null jika normal)
@@ -1386,7 +1326,7 @@ body.modal-open{overflow:hidden}
       plate: l.plate,
       rfid: l.scanned_rfid || '',
       key: alertKey(l),
-      read: false,              // diisi buildAlerts() dari database + cache browser
+      read: false,              // diisi buildAlerts() dari cache browser
       canOpen: true,
       canQuickReg: false
     };
@@ -1412,34 +1352,21 @@ body.modal-open{overflow:hidden}
     return a;
   }
   function buildAlerts() {
-    var all = [], fixRead = [], fixDismissed = [], cacheChanged = false;
-    var mark = function (bucket, k) { if (!alertMeta[bucket][k]) { alertMeta[bucket][k] = 1; cacheChanged = true; } };
+    var all = [], cacheChanged = false;
     state.logs.forEach(function (l) {
       var a = alertFromLog(l);
       if (!a) return;
       var k = a.key;
-      // Database -> cache browser
-      if (l.alertRead) mark('read', k);
-      if (l.alertDismissed) mark('dismissed', k);
       // Cache lama (versi sebelumnya memakai id log sebagai kunci) -> kunci uuid
-      if (alertMeta.read[l.id]) mark('read', k);
-      if (alertMeta.dismissed[l.id]) mark('dismissed', k);
+      if (alertMeta.read[l.id] && !alertMeta.read[k]) { alertMeta.read[k] = 1; cacheChanged = true; }
+      if (alertMeta.dismissed[l.id] && !alertMeta.dismissed[k]) { alertMeta.dismissed[k] = 1; cacheChanged = true; }
       a.read = !!alertMeta.read[k];
       a.dismissed = !!alertMeta.dismissed[k];
-      // Cache browser -> database (misal sempat offline saat menandai)
-      if (l.alertKnown) {
-        if (a.read && !l.alertRead) fixRead.push(k);
-        if (a.dismissed && !l.alertDismissed) fixDismissed.push(k);
-      }
       all.push(a);
     });
     derivedAlertKeys = all.map(function (a) { return a.key; });
     state.alerts = all.filter(function (a) { return !a.dismissed; });
     if (cacheChanged) saveAlertCache();
-    if ((fixRead.length || fixDismissed.length) && Date.now() - lastAlertReconcile > 20000) {
-      lastAlertReconcile = Date.now();
-      pushAlertStates(fixRead, fixDismissed);
-    }
   }
 
   function todayLogs() { return state.logs.filter(function (l) { return isToday(l.ts); }); }
@@ -2794,25 +2721,9 @@ body.modal-open{overflow:hidden}
             nim_nip: rawNim,
             scanned_rfid: scannedRfid,
             method: r.method || 'ALPR',
-            uuid: r.client_uuid || null,
-            alertRead: !!r.alert_read,          // API lokal: hasil JOIN security_alerts
-            alertDismissed: !!r.alert_dismissed,
-            alertKnown: USE_LOCAL_API && !!r.client_uuid
+            uuid: r.client_uuid || null
           };
         });
-        // Netlify: status notifikasi diambil terpisah dari tabel Supabase security_alerts
-        if (!USE_LOCAL_API) {
-          try {
-            var withUuid = state.logs.filter(function (l) { return l.uuid; });
-            var sm = await fetchSupabaseAlertStates(withUuid.map(function (l) { return l.uuid; }));
-            if (sm) withUuid.forEach(function (l) {
-              var st = sm[l.uuid];
-              l.alertRead = !!(st && st.is_read);
-              l.alertDismissed = !!(st && st.dismissed);
-              l.alertKnown = true;
-            });
-          } catch (e) { console.warn('Gagal memuat status notifikasi dari Supabase:', e); }
-        }
         state.loaded = true;
         if (state.logs.length > 0 && prevFirstId && state.logs[0].id !== prevFirstId) {
           state.newIds = {};

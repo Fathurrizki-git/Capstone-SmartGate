@@ -63,7 +63,7 @@ ALTER TABLE registered_vehicles ADD CONSTRAINT registered_vehicles_category_chec
 CREATE INDEX IF NOT EXISTS idx_vehicle_logs_unsynced ON vehicle_logs (id) WHERE NOT synced;
 CREATE INDEX IF NOT EXISTS idx_vehicle_logs_created ON vehicle_logs (created_at DESC);
 
--- 5. SECURITY NOTIFICATION (dokumentasi + status dibaca/dihapus), sinkron dengan Supabase security_alerts.
+-- 5. SECURITY NOTIFICATION (dokumentasi isi notifikasi), dikirim ke Supabase security_alerts.
 --    Diisi otomatis dari vehicle_logs oleh local_db.py (SECURITY_ALERTS_FROM_LOGS_SQL).
 DROP TABLE IF EXISTS alert_states;
 
@@ -77,12 +77,15 @@ CREATE TABLE IF NOT EXISTS security_alerts (
   plate VARCHAR(20),
   rfid_uid VARCHAR(50),                        -- kartu yang di-tap (kendaraan belum terdaftar)
   confidence NUMERIC(5, 2),
-  is_read BOOLEAN NOT NULL DEFAULT FALSE,      -- sudah dibaca petugas
-  dismissed BOOLEAN NOT NULL DEFAULT FALSE,    -- dihapus dari daftar notifikasi (log asli tetap ada)
-  updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
-  synced BOOLEAN NOT NULL DEFAULT FALSE,       -- FALSE = isi notifikasi belum terkirim ke Supabase
-  dirty BOOLEAN NOT NULL DEFAULT FALSE         -- status dibaca/dihapus berubah lokal, belum terkirim
+  synced BOOLEAN NOT NULL DEFAULT FALSE        -- FALSE = belum terkirim ke Supabase
 );
 
+-- Database yang sempat memakai versi dengan kolom status: buang kolom yang tidak dipakai
+DROP INDEX IF EXISTS idx_security_alerts_dirty;
+ALTER TABLE security_alerts
+  DROP COLUMN IF EXISTS is_read,
+  DROP COLUMN IF EXISTS dismissed,
+  DROP COLUMN IF EXISTS dirty,
+  DROP COLUMN IF EXISTS updated_at;
+
 CREATE INDEX IF NOT EXISTS idx_security_alerts_unsynced ON security_alerts (created_at) WHERE NOT synced;
-CREATE INDEX IF NOT EXISTS idx_security_alerts_dirty ON security_alerts (log_uuid) WHERE dirty;

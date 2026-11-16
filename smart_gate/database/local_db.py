@@ -324,11 +324,7 @@ class LocalDB:
         return row
 
     def list_logs(self, limit=150):
-        """Log terbaru + status Security Notification (alert_read / alert_dismissed) dari security_alerts."""
-        return self._query(
-            "SELECT l.*, COALESCE(a.is_read, FALSE) AS alert_read, COALESCE(a.dismissed, FALSE) AS alert_dismissed "
-            "FROM vehicle_logs l LEFT JOIN security_alerts a ON a.log_uuid = l.client_uuid "
-            "ORDER BY l.created_at DESC, l.id DESC LIMIT %s", (int(limit),))
+        return self._query("SELECT * FROM vehicle_logs ORDER BY created_at DESC, id DESC LIMIT %s", (int(limit),))
 
     def list_out_times(self, since, until, limit=50000):
         """Waktu (created_at) semua kendaraan keluar dalam rentang [since, until) — untuk grafik Trendline."""
@@ -346,7 +342,6 @@ class LocalDB:
 
     # ── Security Notification (tabel security_alerts) ──
     # Isi notifikasi dibuat dari vehicle_logs (aturan sama dengan alertFromLog() di dashboard).
-    # Status is_read / dismissed hanya FALSE -> TRUE dan digabung dengan OR, jadi tidak ada konflik sinkron.
     def refresh_security_alerts(self, log_id=None, conn=None) -> int:
         """Catat notifikasi untuk log yang memicu peringatan (semua log, atau satu log_id). Idempoten."""
         sql = SECURITY_ALERTS_FROM_LOGS_SQL.format(extra="AND l.id = %s" if log_id is not None else "")
@@ -356,59 +351,14 @@ class LocalDB:
         self._query(sql, params)
         return 0
 
-    def mark_alerts(self, log_uuids: list, read: bool = False, dismissed: bool = False):
-        """Tandai notifikasi dibaca / dihapus dari dashboard lokal (antre dikirim ke Supabase)."""
-        if not log_uuids or not (read or dismissed):
-            return
-        self._query(
-            """UPDATE security_alerts SET
-                 is_read = is_read OR %s, dismissed = dismissed OR %s, dirty = TRUE, updated_at = NOW()
-               WHERE log_uuid = ANY(%s::uuid[])""",
-            (bool(read), bool(dismissed), list(dict.fromkeys(str(u) for u in log_uuids))))
-
     def pending_security_alerts(self, limit=100):
-        """Notifikasi yang isinya belum terkirim ke Supabase."""
+        """Notifikasi yang belum terkirim ke Supabase."""
         return self._query("SELECT * FROM security_alerts WHERE NOT synced ORDER BY created_at LIMIT %s", (int(limit),))
 
     def mark_security_alerts_synced(self, log_uuids: list):
         if log_uuids:
             self._query("UPDATE security_alerts SET synced = TRUE WHERE log_uuid = ANY(%s::uuid[])",
                         ([str(u) for u in log_uuids],))
-
-    def dirty_alert_status(self, limit=500):
-        """Status dibaca/dihapus yang berubah lokal dan sudah ada barisnya di Supabase."""
-        return self._query("SELECT log_uuid, is_read, dismissed FROM security_alerts WHERE dirty AND synced LIMIT %s",
-                           (int(limit),))
-
-    def mark_alert_status_synced(self, rows: list):
-        """Bersihkan flag dirty hanya jika nilainya masih sama dengan yang terkirim (perubahan baru tetap antre)."""
-        if rows:
-            self._query(
-                """UPDATE security_alerts a SET dirty = FALSE
-                   FROM unnest(%s::uuid[], %s::bool[], %s::bool[]) AS s(u, r, d)
-                   WHERE a.log_uuid = s.u AND a.is_read = s.r AND a.dismissed = s.d""",
-                ([str(r["log_uuid"]) for r in rows], [bool(r["is_read"]) for r in rows],
-                 [bool(r["dismissed"]) for r in rows]))
-
-    def apply_remote_alert_status(self, remote_rows: list) -> int:
-        """Gabungkan status dari Supabase (OR), misal notifikasi ditandai dibaca di dashboard Netlify."""
-        merged = {}  # satu uuid hanya boleh muncul sekali dalam UPDATE ... FROM
-        for r in remote_rows:
-            u = r.get("log_uuid")
-            if u:
-                m = merged.setdefault(str(u), {"log_uuid": str(u), "is_read": False, "dismissed": False})
-                m["is_read"] = m["is_read"] or bool(r.get("is_read"))
-                m["dismissed"] = m["dismissed"] or bool(r.get("dismissed"))
-        rows = [m for m in merged.values() if m["is_read"] or m["dismissed"]]
-        if not rows:
-            return 0
-        self._query(
-            """UPDATE security_alerts a SET
-                 is_read = a.is_read OR s.r, dismissed = a.dismissed OR s.d, updated_at = NOW()
-               FROM unnest(%s::uuid[], %s::bool[], %s::bool[]) AS s(u, r, d)
-               WHERE a.log_uuid = s.u AND ((s.r AND NOT a.is_read) OR (s.d AND NOT a.dismissed))""",
-            ([m["log_uuid"] for m in rows], [m["is_read"] for m in rows], [m["dismissed"] for m in rows]))
-        return len(rows)
 
     def mark_logs_synced(self, log_ids: list):
         if log_ids:

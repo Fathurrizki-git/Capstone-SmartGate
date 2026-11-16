@@ -206,10 +206,6 @@ class GateDatabase:
     def list_logs(self, limit=150):
         return self.local.list_logs(min(max(int(limit), 1), 1000))
 
-    def mark_alerts(self, log_uuids: list, read: bool = False, dismissed: bool = False):
-        self.local.mark_alerts(log_uuids, read=read, dismissed=dismissed)
-        self.sync.request_sync()
-
     def list_out_times(self, since, until):
         return self.local.list_out_times(since, until)
 
