@@ -11,7 +11,14 @@
  * Komponen yang terhubung ke ESP32:
  *   Sensor IR 1 E18-D80NK (Sebelum Palang) -> GPIO32 (Active LOW, INPUT_PULLUP)
  *   Sensor IR 2 E18-D80NK (Setelah Palang) -> GPIO33 (Active LOW, INPUT_PULLUP)
- *   Push Button Manual                     -> GPIO27 (Active LOW, INPUT_PULLUP)
+ *   Push Button Manual Schneider XB7NA42   -> GPIO27 (Kontak NC, INPUT_PULLUP)
+ *       Wiring: terminal 1 -> GPIO27, terminal 2 -> GND.
+ *       Dilepas = LOW (kontak tertutup), ditekan = HIGH. Dibalik di firmware
+ *       (BUTTON_IS_NC) sehingga protokol tetap: 1 = ditekan.
+ *       Kabel putus/lepas terbaca "ditekan" terus: jika ditekan lebih dari
+ *       BUTTON_FAULT_MS, firmware mengirim ERR:BTN_FAULT sekali dan menahan
+ *       EVT:BTN:1 sampai tombol terbaca lepas lagi (lalu kirim EVT:BTN_OK).
+ *       Jika saat boot sudah terbaca ditekan, tekanan itu diabaikan.
  *   Motor Servo Palang (Signal)            -> GPIO13 (PWM 50Hz)
  *   Buzzer Flash 12V (Basis Transistor NPN)-> GPIO26 (Active HIGH)
  *   LCD I2C 20x4                           -> SDA GPIO21, SCL GPIO22
@@ -21,6 +28,8 @@
  *                      LCD:<b1>|<b2>|<b3>|<b4> | LCDCLR
  *   ESP32 -> Mini PC : READY:<nama> | PONG | ST:<ir1>:<ir2>:<btn>
  *                      EVT:IR1:<0|1> | EVT:IR2:<0|1> | EVT:BTN:<0|1> | ERR:<pesan>
+ *                      ERR:BTN_FAULT (tombol ditekan > BUTTON_FAULT_MS / kabel putus)
+ *                      EVT:BTN_OK    (tombol kembali normal setelah BTN_FAULT)
  */
 
 #include <Arduino.h>
@@ -47,6 +56,8 @@ const uint32_t SERVO_SETTLE_MS    = 500;     // Waktu servo mencapai posisi sebe
 const bool     SERVO_DETACH_IDLE  = true;    // Lepas sinyal setelah bergerak agar tidak jitter / panas
 const uint32_t IR_DEBOUNCE_MS     = 30;
 const uint32_t BUTTON_DEBOUNCE_MS = 50;
+const bool     BUTTON_IS_NC       = true;    // true = push button NC (XB7NA42), false = NO
+const uint32_t BUTTON_FAULT_MS    = 5000;    // Ditekan terus lebih dari ini = gangguan / kabel putus
 const uint32_t HEARTBEAT_MS       = 250;     // Interval kirim status ST:...
 const uint32_t PC_TIMEOUT_MS      = 5000;    // Tampilkan peringatan LCD jika Mini PC diam selama ini
 const uint16_t BEEP_GAP_MS        = 80;
@@ -55,18 +66,24 @@ const uint16_t BEEP_GAP_MS        = 80;
 struct DebouncedInput {
   uint8_t  pin;
   uint32_t debounceMs;
-  bool     stable;     // true = aktif (LOW)
+  bool     inverted;   // false = aktif saat LOW (NO / sensor IR), true = aktif saat HIGH (NC)
+  bool     stable;     // true = aktif (terhalang / ditekan)
   bool     lastRaw;
   uint32_t changedAt;
 };
 
-DebouncedInput irBefore = {PIN_IR_BEFORE, IR_DEBOUNCE_MS, false, false, 0};
-DebouncedInput irAfter  = {PIN_IR_AFTER,  IR_DEBOUNCE_MS, false, false, 0};
-DebouncedInput button   = {PIN_BUTTON,    BUTTON_DEBOUNCE_MS, false, false, 0};
+DebouncedInput irBefore = {PIN_IR_BEFORE, IR_DEBOUNCE_MS,     false,        false, false, 0};
+DebouncedInput irAfter  = {PIN_IR_AFTER,  IR_DEBOUNCE_MS,     false,        false, false, 0};
+DebouncedInput button   = {PIN_BUTTON,    BUTTON_DEBOUNCE_MS, BUTTON_IS_NC, false, false, 0};
+
+// Baca level pin dan terjemahkan ke "aktif" sesuai jenis kontak
+bool readActive(const DebouncedInput &in) {
+  return (digitalRead(in.pin) == LOW) != in.inverted;
+}
 
 // Return true jika status stabil berubah
 bool updateInput(DebouncedInput &in) {
-  bool raw = digitalRead(in.pin) == LOW;
+  bool raw = readActive(in);
   uint32_t now = millis();
   if (raw != in.lastRaw) {
     in.lastRaw = raw;
@@ -77,6 +94,30 @@ bool updateInput(DebouncedInput &in) {
     return true;
   }
   return false;
+}
+
+// ── Proteksi Push Button (kabel putus pada kontak NC) ──
+bool     buttonFault     = false;  // true = ditekan terus > BUTTON_FAULT_MS, EVT:BTN:1 ditahan
+uint32_t buttonPressedAt = 0;      // Waktu tombol mulai terbaca ditekan (stabil)
+
+void updateButton() {
+  if (updateInput(button)) {
+    if (button.stable) {
+      buttonPressedAt = millis();
+      // Tekanan normal dikirim seketika setelah debounce, tidak menunggu BUTTON_FAULT_MS
+      if (!buttonFault) Serial.println("EVT:BTN:1");
+    } else if (buttonFault) {
+      buttonFault = false;
+      Serial.println("EVT:BTN_OK");
+    } else {
+      Serial.println("EVT:BTN:0");
+    }
+  }
+
+  if (button.stable && !buttonFault && millis() - buttonPressedAt >= BUTTON_FAULT_MS) {
+    buttonFault = true;
+    Serial.println("ERR:BTN_FAULT");
+  }
 }
 
 // ── Buzzer Non-Blocking ──────────────────────────
@@ -314,9 +355,13 @@ void setup() {
   tryInitLcd();
   lastLcdRetryMs = millis();
 
-  irBefore.stable = irBefore.lastRaw = digitalRead(PIN_IR_BEFORE) == LOW;
-  irAfter.stable  = irAfter.lastRaw  = digitalRead(PIN_IR_AFTER) == LOW;
-  button.stable   = button.lastRaw   = digitalRead(PIN_BUTTON) == LOW;
+  irBefore.stable = irBefore.lastRaw = readActive(irBefore);
+  irAfter.stable  = irAfter.lastRaw  = readActive(irAfter);
+  button.stable   = button.lastRaw   = readActive(button);
+  // Tombol sudah terbaca ditekan saat boot: tidak dikirim sebagai EVT:BTN:1 (bukan transisi).
+  // Jika terus ditekan, BTN_FAULT terpicu setelah BUTTON_FAULT_MS; tekanan pertama
+  // baru diterima setelah tombol terbaca lepas.
+  buttonPressedAt = millis();
 
   Serial.println("READY:SMART_GATE_ESP32_V1");
   if (!lcd) Serial.println("ERR:LCD_NOT_FOUND");
@@ -328,7 +373,7 @@ void loop() {
 
   if (updateInput(irBefore)) Serial.printf("EVT:IR1:%d\n", irBefore.stable);
   if (updateInput(irAfter))  Serial.printf("EVT:IR2:%d\n", irAfter.stable);
-  if (updateInput(button))   Serial.printf("EVT:BTN:%d\n", button.stable);
+  updateButton();
 
   updateBuzzer();
   updateServo();

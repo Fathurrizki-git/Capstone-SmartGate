@@ -19,6 +19,8 @@ Pesan ESP32 -> Mini PC:
   ST:<ir1>:<ir2>:<btn>       -> heartbeat status (1 = terdeteksi / ditekan)
   EVT:IR1:<0|1>, EVT:IR2:<0|1>, EVT:BTN:<0|1>  -> perubahan status (sudah di-debounce)
   PONG, ERR:<pesan>
+  ERR:BTN_FAULT              -> push button (NC) ditekan terus / kabel putus; EVT:BTN:1 ditahan
+  EVT:BTN_OK                 -> push button kembali normal setelah BTN_FAULT
 """
 
 import time
@@ -152,6 +154,8 @@ class ESP32Link:
                 self.ir_before = parts[1] == "1"
                 self.ir_after = parts[2] == "1"
                 self.button_down = parts[3] == "1"
+        elif line == "EVT:BTN_OK":
+            print("[OK] Push button normal kembali")
         elif line.startswith("EVT:"):
             parts = line.split(":")
             if len(parts) < 3:
@@ -173,6 +177,8 @@ class ESP32Link:
                 print("[WARN] ESP32 ter-reset. Menyinkronkan ulang tampilan LCD...")
                 if self.on_ready:
                     self.on_ready()
+        elif line == "ERR:BTN_FAULT":
+            print("[WARN] Push button gangguan / kabel putus")
         elif line.startswith("ERR"):
             print(f"[WARN] ESP32 melaporkan: {line}")
 
