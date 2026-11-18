@@ -139,7 +139,7 @@ class LiveALPR:
         self.cam.stop()
 
 
-HTML_FILE = os.path.join(ROOT, 'web_dashboard', 'live_alpr.html')   # tampilan halaman (HTML + CSS + JS)
+HTML_FILE = os.path.join(ROOT, 'live_alpr', 'live_alpr.html')   # tampilan halaman (HTML + CSS + JS)
 
 
 def load_page():
