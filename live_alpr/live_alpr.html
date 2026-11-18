@@ -1,0 +1,119 @@
+<!doctype html>
+<html lang="id"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Live ALPR</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700&display=swap" rel="stylesheet">
+<style>
+:root{
+  --bg:#060b26;--blue:#0075ff;--green:#01b574;--red:#ff383c;--orange:#ffb547;--white:#fff;
+  --gray-400:#a0aec0;--gray-500:#718096;--nav-item:#1a1f37;
+  --card-bg:linear-gradient(128deg,rgba(6,11,40,.74) 0%,rgba(10,14,35,.71) 100%);
+  --hud-bg:linear-gradient(127deg,rgba(6,11,40,.86) 19%,rgba(10,14,35,.62) 76%);
+  --radius:20px;--font:'Plus Jakarta Sans','Segoe UI',Helvetica,Arial,sans-serif;
+}
+*{box-sizing:border-box;-webkit-font-smoothing:antialiased}
+html,body{margin:0;min-height:100%}
+body{font-family:var(--font);color:var(--white);font-size:14px;line-height:1.4;background-color:var(--bg);
+  background-image:url("img/Background.png"),radial-gradient(ellipse at 85% 10%,rgba(0,117,255,.22),transparent 60%);
+  background-size:cover;background-attachment:fixed;padding:20px 16px 28px}
+.wrap{max-width:1280px;margin:0 auto}
+header{display:flex;align-items:center;justify-content:space-between;gap:12px;margin-bottom:16px;flex-wrap:wrap}
+.brand{display:flex;align-items:center;gap:12px}
+.brand img{width:44px;height:44px;object-fit:contain}
+.brand-text{font-weight:700;font-size:12px;letter-spacing:1.98px;line-height:15px;
+  background:linear-gradient(133deg,#fff 0%,rgba(117,122,140,.35) 100%);-webkit-background-clip:text;background-clip:text;
+  -webkit-text-fill-color:transparent;color:transparent}
+.page-title{font-size:18px;font-weight:700}
+.page-sub{font-size:13px;color:var(--gray-400)}
+.pill{display:inline-flex;align-items:center;gap:8px;padding:8px 14px;border-radius:12px;background:var(--nav-item);font-size:13px;font-weight:600}
+.dot{width:8px;height:8px;border-radius:50%;background:var(--green);box-shadow:0 0 0 4px rgba(1,181,116,.18)}
+.dot.off{background:var(--red);box-shadow:0 0 0 4px rgba(255,56,60,.18)}
+.card{background:var(--card-bg);backdrop-filter:blur(60px);-webkit-backdrop-filter:blur(60px);border-radius:var(--radius);
+  padding:14px;box-shadow:0 10px 30px rgba(0,0,0,.4)}
+.stage{position:relative;border-radius:14px;overflow:hidden;background:#000;line-height:0}
+.stage img.video{width:100%;height:auto;display:block;min-height:200px}
+.hud{position:absolute;background:var(--hud-bg);backdrop-filter:blur(20px);-webkit-backdrop-filter:blur(20px);
+  border:1px solid rgba(255,255,255,.08);border-radius:14px;line-height:1.35;box-shadow:0 10px 30px rgba(0,0,0,.4)}
+.hud.tl{top:14px;left:14px;padding:10px 16px;text-align:center}
+.hud.tr{top:14px;right:14px;padding:14px 16px;width:min(300px,42%)}
+.hud.br{bottom:14px;right:14px;padding:8px 14px;font-size:12px;color:var(--gray-400)}
+.fps{font-size:30px;font-weight:700;line-height:1}
+.fps-unit{font-size:11px;font-weight:700;letter-spacing:1.98px;color:var(--gray-400);margin-top:4px}
+.label{font-size:10px;font-weight:500;letter-spacing:1px;text-transform:uppercase;color:var(--gray-400)}
+.plate{margin:6px 0 4px;padding:8px 10px;border-radius:12px;background:rgba(1,181,116,.16);color:var(--white);
+  font-size:22px;font-weight:700;letter-spacing:2px;text-align:center;border:1px solid rgba(1,181,116,.45)}
+.plate.none{background:rgba(255,255,255,.06);border-color:rgba(255,255,255,.08);color:var(--gray-400);font-size:15px;letter-spacing:0;font-weight:600}
+.meta{font-size:12px;color:var(--gray-400);text-align:center;margin-bottom:10px}
+.grid{display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-bottom:10px}
+.stat{background:rgba(255,255,255,.05);border-radius:10px;padding:8px 10px}
+.stat b{display:block;font-size:15px;font-weight:700;color:var(--white)}
+.hist{list-style:none;margin:6px 0 0;padding:0;font-size:12px}
+.hist li{display:flex;justify-content:space-between;padding:4px 0;border-top:1px solid rgba(255,255,255,.06)}
+.hist li span:first-child{font-weight:600;letter-spacing:1px}
+.hist li span:last-child{color:var(--gray-400)}
+.ver b{color:var(--white);font-weight:600}
+footer{margin-top:12px;font-size:12px;color:var(--gray-500);text-align:center}
+@media (max-width:720px){
+  .hud.tr{position:static;width:auto;margin-top:12px;backdrop-filter:none}
+  .hud.br{position:static;margin-top:10px;display:inline-block}
+  .stage{overflow:visible}
+  .fps{font-size:22px}
+}
+</style></head>
+<body><div class="wrap">
+<header>
+  <div class="brand"><img src="img/LOGO-UNTIRTA-1.png" alt="" onerror="this.remove()">
+    <div class="brand-text">SMART PARKING GATE<br>DASHBOARD FT UNTIRTA</div></div>
+  <div><div class="page-title">Live ALPR</div><div class="page-sub">Pembacaan plat nomor terus-menerus dari webcam gerbang</div></div>
+  <div class="pill"><span class="dot" id="camDot"></span><span id="camText">Kamera</span></div>
+</header>
+<div class="card">
+  <div class="stage">
+    <img class="video" src="stream" alt="Video webcam">
+    <div class="hud tl"><div class="fps" id="fps">0.0</div><div class="fps-unit">FPS</div></div>
+    <div class="hud tr">
+      <div class="label">Plat terakhir</div>
+      <div class="plate none" id="plate">Belum ada plat</div>
+      <div class="meta" id="plateMeta">&nbsp;</div>
+      <div class="grid">
+        <div class="stat"><span class="label">Latensi</span><b id="ms">0 ms</b></div>
+        <div class="stat"><span class="label">Plat di frame</span><b id="count">0</b></div>
+        <div class="stat"><span class="label">Kamera</span><b id="res">-</b></div>
+        <div class="stat"><span class="label">Berjalan</span><b id="uptime">0 s</b></div>
+      </div>
+      <div class="label">Riwayat</div>
+      <ul class="hist" id="hist"><li><span>-</span><span></span></li></ul>
+    </div>
+    <div class="hud br ver" id="ver">ALPR</div>
+  </div>
+</div>
+<footer>Kotak hijau = sesuai pola plat Indonesia &middot; merah = tidak sesuai</footer>
+</div>
+<script>
+const $ = id => document.getElementById(id);
+const esc = s => String(s).replace(/[&<>"]/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));
+const dur = s => s < 60 ? s + ' s' : s < 3600 ? Math.floor(s / 60) + ' m ' + (s % 60) + ' s' : Math.floor(s / 3600) + ' j ' + Math.floor(s % 3600 / 60) + ' m';
+async function tick() {
+  try {
+    const d = await (await fetch('status', {cache: 'no-store'})).json();
+    $('fps').textContent = d.fps.toFixed(1);
+    $('ms').textContent = d.ms + ' ms';
+    $('count').textContent = d.plates_in_frame;
+    $('res').textContent = d.resolution;
+    $('uptime').textContent = dur(d.uptime);
+    $('camDot').classList.toggle('off', !d.camera_ok);
+    $('camText').textContent = d.camera_ok ? d.camera : 'Kamera tidak terhubung';
+    const p = $('plate');
+    if (d.last) {
+      p.textContent = d.last.plate; p.classList.remove('none');
+      $('plateMeta').textContent = 'skor ' + d.last.conf.toFixed(2) + ' \u00b7 ' + d.last.age.toFixed(0) + ' detik lalu';
+    } else { p.textContent = 'Belum ada plat'; p.classList.add('none'); $('plateMeta').innerHTML = '&nbsp;'; }
+    $('hist').innerHTML = d.history.length
+      ? d.history.map(h => '<li><span>' + esc(h.plate) + '</span><span>' + esc(h.time) + '</span></li>').join('')
+      : '<li><span>-</span><span></span></li>';
+    $('ver').innerHTML = 'ALPR <b>' + esc(d.alpr.version) + '</b> \u00b7 ' + esc(d.alpr.engine) + ' \u00b7 ' + esc(d.alpr.runtime);
+  } catch (e) { $('camDot').classList.add('off'); $('camText').textContent = 'Terputus dari Mini PC'; }
+}
+tick(); setInterval(tick, 500);
+</script>
+</body></html>
