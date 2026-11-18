@@ -39,7 +39,8 @@ import numpy as np
 import config
 from smart_gate.vision.camera import CameraStream
 from smart_gate.hardware.hardware import HardwareManager
-from smart_gate.vision.plate_recognizer import PlateRecognizerAPI, draw_results
+from smart_gate.vision.plate_recognizer import draw_results
+from smart_gate.vision.local_alpr import create_alpr
 from smart_gate.database.gate_database import GateDatabase
 from smart_gate.database.local_db import normalize_plate
 from smart_gate.web.stream_server import VideoStreamServer
@@ -60,7 +61,7 @@ class SmartParkingExitGate:
 
         # 2. Inisialisasi Database Lokal (+ sinkron Supabase di background) & AI API
         self.db = GateDatabase()
-        self.api = PlateRecognizerAPI()
+        self.api = create_alpr()   # config.ALPR_ENGINE: LOCAL (ONNX di Mini PC) / CLOUD (Plate Recognizer)
 
         # 3. Inisialisasi Live Web Stream Server (Port 5050)
         self.stream_server = None

@@ -18,6 +18,15 @@ Komponen:
 
 import sys
 
+# ── Mesin ALPR ──────────────────────────────────
+# "LOCAL" = YOLOv8n + PaddleOCR (ONNX) di Mini PC, tetap jalan offline.
+#           File model dari notebook alpr_model/new/alpr.ipynb disalin ke ALPR_MODEL_DIR.
+#           Jika model / onnxruntime belum ada, otomatis memakai Plate Recognizer (CLOUD).
+# "CLOUD" = Plate Recognizer API (butuh internet, kuota 2.500/bulan).
+ALPR_ENGINE = "LOCAL"
+ALPR_MODEL_DIR = "alpr_model/weights"       # Relatif ke root proyek: plate_det.onnx, plate_rec.onnx, plate_rec_dict.txt
+ALPR_DET_CONF = 0.5                          # Ambang keyakinan deteksi plat YOLO
+
 # ── Plate Recognizer API ────────────────────────
 API_TOKEN = "476ed9b4276c169486fc16e30891cc01f9f0e4f1"          # Token dari platerecognizer.com
 API_URL = "https://api.platerecognizer.com/v1/plate-reader/"
