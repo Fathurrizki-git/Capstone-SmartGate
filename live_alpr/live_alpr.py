@@ -38,13 +38,13 @@ IMG_DIR = os.path.join(ROOT, 'web_dashboard', 'img')
 GREEN, RED = (116, 181, 1), (60, 56, 255)          # BGR dari --green #01b574 dan --red #ff383c
 
 
-def alpr_version():
+def alpr_version(runtime='ONNX Runtime CPU'):
     """Versi ALPR: config.ALPR_VERSION bila ada, selain itu tanggal file model."""
     v = getattr(config, 'ALPR_VERSION', None)
     model_dir = getattr(config, 'ALPR_MODEL_DIR', 'alpr_model/weights')
     det = os.path.join(model_dir if os.path.isabs(model_dir) else os.path.join(ROOT, model_dir), 'plate_det.onnx')
     stamp = time.strftime('%d %b %Y', time.localtime(os.path.getmtime(det))) if os.path.exists(det) else '-'
-    return {'version': v or f'model {stamp}', 'engine': 'YOLOv8n + PP-OCRv5', 'runtime': 'ONNX Runtime CPU'}
+    return {'version': v or f'model {stamp}', 'engine': 'YOLOv8n + PP-OCRv5', 'runtime': runtime}
 
 
 class LiveALPR:
@@ -58,7 +58,7 @@ class LiveALPR:
         self.last = None                       # plat stabil terakhir: {plate, conf, time}
         self.history = deque(maxlen=6)
         self.started = time.time()
-        self.version = alpr_version()
+        self.version = alpr_version(getattr(self.alpr, 'runtime', 'ONNX Runtime CPU'))
         self.stop = threading.Event()
         threading.Thread(target=self._detect_loop, daemon=True).start()
 

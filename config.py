@@ -26,6 +26,8 @@ import sys
 ALPR_ENGINE = "LOCAL"
 ALPR_MODEL_DIR = "alpr_model/weights"       # Relatif ke root proyek: plate_det.onnx, plate_rec.onnx, plate_rec_dict.txt
 ALPR_DET_CONF = 0.5                          # Ambang keyakinan deteksi plat YOLO
+ALPR_RUNTIME = "AUTO"                        # "AUTO" = OpenVINO bila terpasang (lebih cepat di CPU Intel), selain itu ONNX Runtime
+                                             # "OPENVINO" / "ONNXRUNTIME" = paksa salah satu
 
 # ── Plate Recognizer API ────────────────────────
 API_TOKEN = "476ed9b4276c169486fc16e30891cc01f9f0e4f1"          # Token dari platerecognizer.com

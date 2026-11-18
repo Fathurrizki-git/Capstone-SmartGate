@@ -1,8 +1,10 @@
 """
 ALPR lokal (offline) di Mini PC: YOLOv8n (deteksi plat) + PP-OCRv5 rec (baca teks), keduanya format ONNX.
 
-Hanya butuh onnxruntime + OpenCV + numpy (tanpa PyTorch / PaddlePaddle), sehingga jalan di
-Python versi baru (PaddlePaddle belum punya wheel untuk Python 3.14).
+Hanya butuh onnxruntime ATAU openvino + OpenCV + numpy (tanpa PyTorch / PaddlePaddle), sehingga jalan di
+Python versi baru (PaddlePaddle belum punya wheel untuk Python 3.14). Runtime dipilih lewat config.ALPR_RUNTIME;
+OpenVINO biasanya lebih cepat di CPU Intel (mis. Celeron mini PC) dan membaca file .onnx yang sama.
+Ukuran input YOLO dibaca dari plate_det.onnx, jadi model yang diekspor ulang di 416/320 langsung terpakai.
 
 File model dibuat di notebook Colab alpr_model/new/alpr.ipynb (bagian "Ekspor model untuk Mini PC")
 lalu disalin ke folder config.ALPR_MODEL_DIR:
@@ -197,12 +199,53 @@ class PlateReader:
         return ''.join(text), float(np.mean(conf)) if conf else 0.0
 
 
+class _OpenVINOSession:
+    """Membungkus model OpenVINO agar antarmukanya sama dengan onnxruntime.InferenceSession
+    (get_inputs()[0].name/.shape dan run(None, {nama: array})), sehingga PlateDetector/PlateReader tidak berubah.
+    OpenVINO membaca file .onnx langsung, jadi tidak perlu konversi model tambahan."""
+
+    def __init__(self, core, path):
+        from types import SimpleNamespace
+        self.model = core.compile_model(path, 'CPU', {'PERFORMANCE_HINT': 'LATENCY'})
+        port = self.model.inputs[0]
+        shape = [d.get_length() if d.is_static else None for d in port.get_partial_shape()]
+        self._inputs = [SimpleNamespace(name=port.get_any_name(), shape=shape)]
+        self.output = self.model.outputs[0]
+        self.request = self.model.create_infer_request()
+
+    def get_inputs(self):
+        return self._inputs
+
+    def run(self, _output_names, feed):
+        res = self.request.infer({0: next(iter(feed.values()))})
+        return [res[self.output].copy()]
+
+
+def _open_sessions(paths):
+    """Buka model sesuai config.ALPR_RUNTIME: "AUTO" (OpenVINO bila terpasang, selain itu ONNX Runtime),
+    "OPENVINO", atau "ONNXRUNTIME". Mengembalikan (daftar sesi, nama runtime)."""
+    pref = str(getattr(config, 'ALPR_RUNTIME', 'AUTO')).upper()
+    if pref in ('AUTO', 'OPENVINO'):
+        try:
+            import openvino as ov
+            core = ov.Core()
+            return [_OpenVINOSession(core, p) for p in paths], f'OpenVINO {ov.__version__.split("-")[0]} CPU'
+        except Exception as e:
+            if pref == 'OPENVINO':
+                raise
+            if not isinstance(e, ImportError):
+                print(f"[WARN] OpenVINO gagal dipakai ({e}), memakai ONNX Runtime.")
+    import onnxruntime as ort
+    opts = ort.SessionOptions()
+    opts.log_severity_level = 3
+    return ([ort.InferenceSession(p, opts, providers=['CPUExecutionProvider']) for p in paths],
+            f'ONNX Runtime {ort.__version__} CPU')
+
+
 class LocalALPR:
     """Pengganti PlateRecognizerAPI yang berjalan offline di Mini PC."""
 
     def __init__(self, model_dir: str = None, det_conf: float = None):
-        import onnxruntime as ort
-
         model_dir = model_dir or getattr(config, 'ALPR_MODEL_DIR', 'alpr_model/weights')
         if not os.path.isabs(model_dir):
             model_dir = os.path.join(smart_gate.PROJECT_ROOT, model_dir)
@@ -216,16 +259,14 @@ class LocalALPR:
         with open(dict_path, encoding='utf-8') as f:
             chars = ['blank'] + [ln.rstrip('\r\n') for ln in f if ln.rstrip('\r\n')]
 
-        opts = ort.SessionOptions()
-        opts.log_severity_level = 3
-        providers = ['CPUExecutionProvider']
-        self.detector = PlateDetector(ort.InferenceSession(det_path, opts, providers=providers),
+        (det_sess, rec_sess), self.runtime = _open_sessions([det_path, rec_path])
+        self.detector = PlateDetector(det_sess,
                                       conf=det_conf if det_conf is not None else getattr(config, 'ALPR_DET_CONF', 0.5))
-        self.reader = PlateReader(ort.InferenceSession(rec_path, opts, providers=providers), chars)
+        self.reader = PlateReader(rec_sess, chars)
 
         # Pemanasan agar pindaian pertama tidak lambat
         self.recognize(np.zeros((480, 640, 3), np.uint8))
-        print(f"[OK] ALPR lokal siap (YOLOv8n + PP-OCRv5, ONNX CPU)")
+        print(f"[OK] ALPR lokal siap (YOLOv8n {self.detector.size}px + PP-OCRv5, {self.runtime})")
         print(f"     Model: {model_dir}")
 
     def recognize(self, image: np.ndarray) -> dict:

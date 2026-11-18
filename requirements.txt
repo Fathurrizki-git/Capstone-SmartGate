@@ -10,6 +10,7 @@ requests>=2.31.0
 
 # ALPR lokal (YOLOv8n + PaddleOCR dalam format ONNX, tanpa PyTorch/PaddlePaddle)
 onnxruntime>=1.20
+# Opsional, lebih cepat di CPU Intel (dipakai otomatis bila terpasang): pip install openvino
 
 # Deteksi webcam berdasarkan nama (melewati kamera virtual OBS / Cast)
 cv2-enumerate-cameras>=1.4
