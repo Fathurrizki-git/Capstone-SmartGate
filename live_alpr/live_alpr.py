@@ -44,7 +44,7 @@ def alpr_version(runtime='ONNX Runtime CPU'):
     model_dir = getattr(config, 'ALPR_MODEL_DIR', 'alpr_model/weights2')
     det = os.path.join(model_dir if os.path.isabs(model_dir) else os.path.join(ROOT, model_dir), 'plate_det.onnx')
     stamp = time.strftime('%d %b %Y', time.localtime(os.path.getmtime(det))) if os.path.exists(det) else '-'
-    return {'version': v or f'model {stamp}', 'engine': 'YOLOv8n + PP-OCRv5', 'runtime': runtime}
+    return {'version': v or f'model {stamp}', 'engine': 'YOLO + PP-OCRv5', 'runtime': runtime}
 
 
 class LiveALPR:

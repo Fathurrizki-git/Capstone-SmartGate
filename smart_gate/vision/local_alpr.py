@@ -1,5 +1,5 @@
 """
-ALPR lokal (offline) di Mini PC: YOLOv8n (deteksi plat) + PP-OCRv5 rec (baca teks), keduanya format ONNX.
+ALPR lokal (offline) di Mini PC: YOLOv8n / YOLO26n (deteksi plat) + PP-OCRv5 rec (baca teks), keduanya format ONNX.
 
 Hanya butuh onnxruntime ATAU openvino + OpenCV + numpy (tanpa PyTorch / PaddlePaddle), sehingga jalan di
 Python versi baru (PaddlePaddle belum punya wheel untuk Python 3.14). Runtime dipilih lewat config.ALPR_RUNTIME;
@@ -8,7 +8,7 @@ Ukuran input YOLO dibaca dari plate_det.onnx, jadi model yang diekspor ulang di 
 
 File model dibuat di notebook Colab alpr_model/new/alpr.ipynb (bagian "Ekspor model untuk Mini PC")
 lalu disalin ke folder config.ALPR_MODEL_DIR:
-    plate_det.onnx       YOLOv8n hasil fine-tune (1 kelas: plate), input 640x640
+    plate_det.onnx       YOLOv8n (alpr.ipynb) atau YOLO26n (alpr_yolo26n.ipynb) hasil fine-tune, 1 kelas: plate
     plate_rec.onnx       PaddleOCR en_PP-OCRv5_mobile_rec
     plate_rec_dict.txt   daftar karakter model OCR (satu karakter per baris)
 
@@ -134,7 +134,9 @@ def crop_plate(img, x1, y1, x2, y2, mx=0.04, my=0.10):
 
 # ── Model ONNX ───────────────────────────────────────────────────────────
 class PlateDetector:
-    """YOLOv8n ONNX (keluaran [1, 4+1, N]: cx, cy, w, h, skor kelas plate)."""
+    """YOLO ONNX detektor plat. Format keluaran dikenali otomatis:
+    YOLOv8n  [1, 4+1, N]  cx, cy, w, h, skor  -> disaring + NMS di sini
+    YOLO26n  [1, 300, 6]  x1, y1, x2, y2, skor, kelas (end-to-end, tanpa NMS)"""
 
     def __init__(self, sess, conf=0.5, iou=0.45):
         self.sess = sess
@@ -152,7 +154,16 @@ class PlateDetector:
         canvas[py:py + nh, px:px + nw] = cv2.resize(img, (nw, nh), interpolation=cv2.INTER_LINEAR)
         blob = canvas[:, :, ::-1].transpose(2, 0, 1)[None].astype(np.float32) / 255.0   # BGR->RGB, NCHW
 
-        pred = self.sess.run(None, {self.input_name: blob})[0][0]       # [5, N]
+        pred = self.sess.run(None, {self.input_name: blob})[0][0]
+        if pred.ndim == 2 and pred.shape[1] == 6 and pred.shape[0] > pred.shape[1]:
+            # YOLO26 end-to-end: [300, 6] = x1, y1, x2, y2, skor, kelas (koordinat letterbox, sudah tanpa duplikat)
+            out = []
+            for x1, y1, x2, y2, s, _ in pred[pred[:, 4] >= self.conf]:
+                out.append((max(0.0, (x1 - px) / r), max(0.0, (y1 - py) / r),
+                            min(float(w), (x2 - px) / r), min(float(h), (y2 - py) / r), float(s)))
+            return sorted(out, key=lambda t: -t[4])
+
+        # YOLOv8: [5, N] = cx, cy, w, h, skor -> perlu NMS
         pred = pred.T if pred.shape[0] < pred.shape[1] else pred         # [N, 5]
         scores = pred[:, 4:].max(axis=1)
         keep = scores >= self.conf
@@ -266,7 +277,7 @@ class LocalALPR:
 
         # Pemanasan agar pindaian pertama tidak lambat
         self.recognize(np.zeros((480, 640, 3), np.uint8))
-        print(f"[OK] ALPR lokal siap (YOLOv8n {self.detector.size}px + PP-OCRv5, {self.runtime})")
+        print(f"[OK] ALPR lokal siap (YOLO {self.detector.size}px + PP-OCRv5, {self.runtime})")
         print(f"     Model: {model_dir}")
 
     def recognize(self, image: np.ndarray) -> dict:
