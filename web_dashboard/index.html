@@ -502,6 +502,18 @@ h1,h2,h3,p{margin:0}
 .det-box{display:none!important}
 .cam-actions{display:flex;gap:10px;flex-wrap:wrap;margin-top:16px;align-items:center}
 .last-det{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:12px;margin-top:16px}
+/* hasil snapshot sistem: kotak 1/2 lebar di bawah kamera (kiri) + data deteksi (kanan) */
+.cap-row{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:16px;margin-top:16px;align-items:stretch}
+.cap-frame{border-radius:16px}
+.cam img.cap-img{object-fit:contain;cursor:zoom-in}
+.cap-frame .cam-ov{padding:10px}
+.cap-frame .rec{font-size:10.5px;padding:3px 8px;color:#fff}
+.cap-empty{position:absolute;inset:0;display:flex;align-items:center;justify-content:center;text-align:center;padding:16px;font-size:13px;color:var(--graygray-400)}
+.cap-empty[hidden]{display:none}
+.cap-stats{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));grid-auto-rows:1fr;gap:10px}
+.cap-stats .stat-box{padding:8px 12px;display:flex;flex-direction:column;justify-content:center;min-width:0}
+.cap-stats .stat-box .v{font-size:16px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.cap-stats .cap-wide{grid-column:1 / -1}
 
 /* modal & toast */
 body.modal-open{overflow:hidden}
@@ -560,7 +572,7 @@ body.modal-open{overflow:hidden}
   .welcome .w-crodas{max-height:220px}
 }
 @media (max-width:560px){
-  .g-metrics,.stat-row,.last-det{grid-template-columns:minmax(0,1fr)}
+  .g-metrics,.stat-row,.last-det,.cap-row{grid-template-columns:minmax(0,1fr)}
   .card{padding:18px}
   .welcome .w-crodas{max-height:180px}
 }
@@ -925,15 +937,25 @@ body.modal-open{overflow:hidden}
               <div class="row"><span>CAM-01 &bull; GATE ENTRY</span><span>ALPR v1.0</span></div>
             </div>
           </div>
+          <!-- Hasil Snapshot Sistem (kiri, 1/2 lebar) + data deteksi (kanan); sumber: server Python /capture -->
+          <div class="cap-row">
+            <div class="cam cap-frame">
+              <div class="cam-sim"></div>
+              <img id="cap-img" class="cam-stream cap-img" alt="Hasil snapshot deteksi plat nomor" hidden>
+              <div class="cap-empty" id="cap-empty">Belum ada hasil snapshot.</div>
+              <div class="cam-ov"><div class="row"><span class="rec" id="cap-status">SNAPSHOT</span></div></div>
+            </div>
+            <div class="cap-stats">
+              <div class="stat-box"><div class="k">Plat Terdeteksi</div><div class="v" id="cap-plate">-</div></div>
+              <div class="stat-box"><div class="k">Akurasi OCR</div><div class="v" id="cap-conf">-</div></div>
+              <div class="stat-box cap-wide"><div class="k">Pemilik</div><div class="v" id="cap-owner">-</div></div>
+              <div class="stat-box"><div class="k">Tanggal</div><div class="v" id="cap-date">-</div></div>
+              <div class="stat-box"><div class="k">Waktu</div><div class="v" id="cap-time">-</div></div>
+            </div>
+          </div>
           <div class="cam-actions">
             <button type="button" class="btn btn-ghost" id="cam-toggle"><span data-icon="camera" data-size="15"></span>Sambungkan</button>
             <button type="button" class="btn btn-ghost" id="cam-snap"><span data-icon="download" data-size="15"></span>Snapshot</button>
-          </div>
-          <div class="last-det">
-            <div class="stat-box"><div class="k">Plat Terakhir</div><div class="v" id="ld-plate">-</div></div>
-            <div class="stat-box"><div class="k">Pemilik</div><div class="v" style="font-size:15px" id="ld-name">-</div></div>
-            <div class="stat-box"><div class="k">Tanggal</div><div class="v" id="ld-date">-</div></div>
-            <div class="stat-box"><div class="k">Waktu</div><div class="v" id="ld-time">-</div></div>
           </div>
         </div>
       </div>
@@ -2268,29 +2290,14 @@ body.modal-open{overflow:hidden}
     $('#clear-read').disabled = !state.alerts.some(function (a) { return a.read; });
     renderLastDetection();
     checkPythonStream();
+    startCapturePoll();
   }
+  // Fallback data kotak snapshot dari log terakhir selama belum ada snapshot dari server Python
   function renderLastDetection() {
+    if (captureAvailable) return;
     var l = state.logs && state.logs[0];
-    if (!l) {
-      if ($('#det-plate')) $('#det-plate').textContent = '-';
-      if ($('#det-label')) { $('#det-label').textContent = 'STANDBY'; $('#det-label').style.background = 'var(--blue)'; }
-      if ($('#det-box')) $('#det-box').style.borderColor = 'var(--border)';
-      if ($('#ld-plate')) $('#ld-plate').textContent = '-';
-      if ($('#ld-name')) $('#ld-name').textContent = 'Belum ada kendaraan';
-      if ($('#ld-date')) $('#ld-date').textContent = '-';
-      if ($('#ld-time')) $('#ld-time').textContent = '-';
-      return;
-    }
-    if ($('#det-plate')) $('#det-plate').textContent = l.plate;
-    if ($('#det-label')) {
-      $('#det-label').textContent = l.conf + '%';
-      $('#det-label').style.background = l.conf < 80 ? 'var(--orange)' : 'var(--green)';
-    }
-    if ($('#det-box')) $('#det-box').style.borderColor = l.conf < 80 ? 'var(--orange)' : 'var(--green)';
-    if ($('#ld-plate')) $('#ld-plate').textContent = l.plate;
-    if ($('#ld-name')) $('#ld-name').textContent = l.unregistered ? 'Belum Terdaftar' : l.name;
-    if ($('#ld-date')) $('#ld-date').textContent = fmtDate(l.ts);
-    if ($('#ld-time')) $('#ld-time').textContent = fmtHM(l.ts);
+    if (!l) { setCaptureStats('', null, 'Belum ada kendaraan', null); return; }
+    setCaptureStats(l.plate, l.conf, l.unregistered ? 'Belum Terdaftar' : l.name, l.ts);
   }
 
   /* =========================================================
@@ -2345,6 +2352,7 @@ body.modal-open{overflow:hidden}
   }
   function showLogin() {
     stopCam();
+    stopCapturePoll();
     setLive(false);
     state.route = 'login';
     var t = $('#toasts'); if (t) t.innerHTML = '';
@@ -2355,7 +2363,7 @@ body.modal-open{overflow:hidden}
   }
   function showApp(route, user) {
     var prev = state.route;
-    if (prev === 'security' && route !== 'security') stopCam();
+    if (prev === 'security' && route !== 'security') { stopCam(); stopCapturePoll(); }
     state.route = route;
     $('#login-view').hidden = true;
     $('#app-view').hidden = false;
@@ -2626,6 +2634,99 @@ body.modal-open{overflow:hidden}
     if (document.getElementById('cam-status')) {
       document.getElementById('cam-status').innerHTML = '<span class="live-dot" style="background:var(--blue)"></span>Standby (Kamera ALPR)';
     }
+  }
+
+  /* =========================================================
+     HASIL SNAPSHOT SISTEM (citra capture + deteksi plat dari server Python: /capture & /capture/info)
+     Kotak kiri = citra snapshot; kanan = plat, akurasi OCR, pemilik, tanggal, waktu.
+     Selama belum ada snapshot (server mati / Netlify / baru restart), data kanan diisi dari log terakhir.
+     ========================================================= */
+  var CAPTURE_STATUS = {
+    DETECTED:      { label: 'PLAT TERDETEKSI',   color: 'var(--cyan)' },
+    WAIT_RFID:     { label: 'MENUNGGU RFID',     color: 'var(--blue)' },
+    RESCAN:        { label: 'PINDAI ULANG',      color: 'var(--orange)' },
+    MATCH:         { label: 'AKSES DITERIMA',    color: 'var(--green)' },
+    AUTO_BOUND:    { label: 'AKSES DITERIMA',    color: 'var(--green)' },
+    RFID_MISMATCH: { label: 'RFID TIDAK COCOK',  color: 'var(--red)' },
+    UNREGISTERED:  { label: 'TIDAK TERDAFTAR',   color: 'var(--red)' },
+    RFID_TIMEOUT:  { label: 'RFID TIMEOUT',      color: 'var(--orange)' },
+    DB_OFFLINE:    { label: 'DATABASE OFFLINE',  color: 'var(--red)' },
+    NO_PLATE:      { label: 'PLAT TIDAK TERBACA', color: 'var(--orange)' },
+    OCR_ERROR:     { label: 'OCR GAGAL',         color: 'var(--red)' }
+  };
+  var capturePollTimer = null, captureBase = null, captureImgId = -1, captureInFlight = false, captureAvailable = false;
+
+  function captureBaseURL() {
+    var feed = getCamStreamURL();
+    return feed ? feed.replace(/\/video_feed\/?$/i, '').replace(/\/+$/, '') : '';
+  }
+
+  function stopCapturePoll() {
+    if (capturePollTimer) { clearInterval(capturePollTimer); capturePollTimer = null; }
+    captureBase = null;
+  }
+
+  // Idempoten: renderSecurity() dipanggil berkali-kali
+  function startCapturePoll() {
+    var base = captureBaseURL();
+    if (!base) { stopCapturePoll(); setCaptureEmpty(); return; }
+    if (capturePollTimer && captureBase === base) return;
+    stopCapturePoll();
+    captureBase = base;
+    captureImgId = -1;
+    pollCapture();
+    capturePollTimer = setInterval(pollCapture, 1500);
+  }
+
+  function pollCapture() {
+    if (state.route !== 'security' || !captureBase || captureInFlight) return;
+    captureInFlight = true;
+    var base = captureBase;
+    fetch(base + '/capture/info?t=' + Date.now(), { cache: 'no-store' })
+      .then(function (r) { if (!r.ok) throw new Error('HTTP ' + r.status); return r.json(); })
+      .then(function (info) { if (base === captureBase) renderCapture(info, base); })
+      .catch(function () { if (base === captureBase && !captureAvailable) setCaptureEmpty(); })
+      .then(function () { captureInFlight = false; });
+  }
+
+  function setCaptureStats(plate, conf, owner, d) {
+    if ($('#cap-plate')) $('#cap-plate').textContent = plate || '-';
+    var c = $('#cap-conf');
+    if (c) {
+      c.textContent = conf ? conf + '%' : '-';
+      c.style.color = conf ? (conf < 80 ? 'var(--orange)' : 'var(--green)') : '';
+    }
+    if ($('#cap-owner')) { $('#cap-owner').textContent = owner || '-'; $('#cap-owner').title = owner || ''; }
+    if ($('#cap-date')) $('#cap-date').textContent = d ? fmtDate(d) : '-';
+    if ($('#cap-time')) $('#cap-time').textContent = d ? fmtHMS(d) : '-';
+  }
+
+  function setCaptureEmpty() {
+    captureAvailable = false;
+    captureImgId = -1;
+    var img = $('#cap-img'), empty = $('#cap-empty'), st = $('#cap-status');
+    if (img) { img.hidden = true; img.removeAttribute('src'); }
+    if (empty) empty.hidden = false;
+    if (st) { st.textContent = 'SNAPSHOT'; st.style.background = ''; }
+    renderLastDetection();
+  }
+
+  function renderCapture(info, base) {
+    if (!info || !info.available) { setCaptureEmpty(); return; }
+    captureAvailable = true;
+    var img = $('#cap-img'), empty = $('#cap-empty');
+    if (img && info.id !== captureImgId) {
+      captureImgId = info.id;
+      var src = base + '/capture?id=' + info.id;
+      img.onload = function () { img.hidden = false; if (empty) empty.hidden = true; };
+      img.onclick = function () { window.open(src, '_blank', 'noopener'); };
+      img.src = src;
+    }
+    var st = CAPTURE_STATUS[info.status] || { label: String(info.status || 'SNAPSHOT').toUpperCase(), color: 'rgba(0,0,0,.55)' };
+    var badge = $('#cap-status');
+    if (badge) { badge.textContent = st.label; badge.style.background = st.color; badge.title = info.message || ''; }
+    var conf = typeof info.confidence === 'number' ? Math.round(info.confidence <= 1 ? info.confidence * 100 : info.confidence) : null;
+    setCaptureStats(info.plate, conf, info.owner, info.ts ? new Date(info.ts * 1000) : null);
   }
 
   function snapshot() {

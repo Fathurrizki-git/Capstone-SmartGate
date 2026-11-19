@@ -4,6 +4,7 @@ Menyiarkan live feed webcam langsung ke Web Dashboard secara real-time via Local
 """
 
 import os
+import json
 import time
 import socket
 import mimetypes
@@ -46,6 +47,35 @@ class StreamHub:
         self._raw_cond = threading.Condition()
         self._raw_frame = None
         self._encoder_thread = None
+        # Hasil snapshot sistem (citra saat capture + anotasi deteksi plat) untuk halaman Security Notification
+        self._capture_lock = threading.Lock()
+        self.capture_jpeg = None
+        self.capture_info = {"id": 0}
+
+    def set_capture(self, frame_bgr, width=1280, quality=85, **info):
+        """
+        Simpan citra hasil penangkapan sistem (sudah dianotasi kotak plat bila terdeteksi) beserta metadata.
+        frame_bgr=None hanya memperbarui metadata (mis. hasil verifikasi menyusul setelah tap RFID).
+        """
+        jpeg = None
+        if frame_bgr is not None:
+            try:
+                h, w = frame_bgr.shape[:2]
+                img = cv2.resize(frame_bgr, (width, int(h * width / w)), interpolation=cv2.INTER_AREA) if w > width else frame_bgr
+                ret, buf = cv2.imencode(".jpg", img, [cv2.IMWRITE_JPEG_QUALITY, int(quality)])
+                jpeg = buf.tobytes() if ret else None
+            except Exception:
+                jpeg = None
+        with self._capture_lock:
+            if jpeg is not None:
+                self.capture_jpeg = jpeg
+                self.capture_info = {"id": self.capture_info.get("id", 0) + 1, "ts": time.time(), **info}
+            elif self.capture_jpeg is not None:
+                self.capture_info = {**self.capture_info, **info}
+
+    def get_capture(self):
+        with self._capture_lock:
+            return self.capture_jpeg, dict(self.capture_info)
 
     def configure(self, width=640, quality=60, max_fps=0):
         """Atur lebar, kualitas JPEG, dan batas fps stream (0 = ikuti fps kamera)."""
@@ -164,6 +194,34 @@ class MJPEGHandler(BaseHTTPRequestHandler):
             self.send_header('Cache-Control', 'no-cache, no-store, must-revalidate')
             self.end_headers()
             self.wfile.write(b'{"status":"ok","camera":"active"}')
+            return
+
+        # 1b. Hasil snapshot sistem (capture + deteksi plat terakhir): /capture/info (JSON) & /capture (JPEG)
+        if clean_path in ('/capture/info', '/capture_info'):
+            jpeg, info = GLOBAL_HUB.get_capture()
+            body = json.dumps({**info, "available": jpeg is not None}).encode('utf-8')
+            self.send_response(200)
+            self.send_header('Content-Type', 'application/json')
+            self.send_header('Content-Length', str(len(body)))
+            self.send_header('Access-Control-Allow-Origin', '*')
+            self.send_header('Cache-Control', 'no-cache, no-store, must-revalidate')
+            self.end_headers()
+            self.wfile.write(body)
+            return
+        if clean_path in ('/capture', '/capture.jpg'):
+            jpeg, _ = GLOBAL_HUB.get_capture()
+            if not jpeg:
+                self.send_response(404)
+                self.send_header('Access-Control-Allow-Origin', '*')
+                self.end_headers()
+                return
+            self.send_response(200)
+            self.send_header('Content-Type', 'image/jpeg')
+            self.send_header('Content-Length', str(len(jpeg)))
+            self.send_header('Access-Control-Allow-Origin', '*')
+            self.send_header('Cache-Control', 'no-cache, no-store, must-revalidate, max-age=0')
+            self.end_headers()
+            self.wfile.write(jpeg)
             return
 
         # 2. Endpoint Snapshot JPEG (Single Frame) — fallback jika MJPEG gagal dimuat browser
@@ -286,6 +344,10 @@ class VideoStreamServer:
 
     def update_frame(self, frame):
         GLOBAL_HUB.update_frame(frame)
+
+    def set_capture(self, frame, **info):
+        """Publikasikan hasil snapshot sistem (citra + deteksi plat) ke dashboard (/capture)."""
+        GLOBAL_HUB.set_capture(frame, **info)
 
     def stop(self):
         if self.server:

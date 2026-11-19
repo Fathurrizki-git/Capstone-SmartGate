@@ -226,6 +226,25 @@ class SmartParkingExitGate:
         """Ambil 1 frame citra terbaru dari webcam USB (diambil setelah fungsi dipanggil)."""
         return self.camera.read_fresh()
 
+    def _publish_capture(self, image=None, status="", message="", plate=None, confidence=None, owner=None):
+        """
+        Kirim hasil snapshot sistem (citra capture + anotasi deteksi plat) ke halaman Security Notification.
+        image=None hanya memperbarui status/pesan snapshot terakhir (mis. hasil verifikasi setelah tap RFID).
+        """
+        if not self.stream_server:
+            return
+        info = {"status": status, "message": message}
+        if plate is not None:
+            info["plate"] = plate
+        if confidence is not None:
+            info["confidence"] = round(float(confidence), 4)
+        if owner is not None:
+            info["owner"] = owner
+        try:
+            self.stream_server.set_capture(image, **info)
+        except Exception as e:
+            print(f"[WARN] Gagal memperbarui snapshot dashboard: {e}")
+
     def handle_exit_success(self, info: dict):
         """Aksi saat KEDUA PARAMETER (Plat + RFID) COCOK atau AUTO-BIND Berhasil."""
         plate = info.get("plate", "-")
@@ -615,6 +634,7 @@ class SmartParkingExitGate:
         if not api_res.get("success"):
             err_msg = api_res.get("error") or "Koneksi ke Plate Recognizer API gagal"
             print(f"  [API ERROR] {err_msg}")
+            self._publish_capture(frame, status="OCR_ERROR", message=str(err_msg)[:160], plate="", confidence=0.0)
             self.hw.lcd.display(
                 " GAGAL KONEKSI OCR  ",
                 "PERIKSA INTERNET    ",
@@ -627,6 +647,8 @@ class SmartParkingExitGate:
 
         if not api_res.get("results"):
             print("  [--] Tidak ada plat nomor terdeteksi pada citra. Pastikan plat menghadap kamera & pencahayaan cukup.")
+            self._publish_capture(frame, status="NO_PLATE", message="Tidak ada plat nomor terdeteksi pada citra",
+                                  plate="", confidence=0.0)
             self.hw.lcd.display(
                 "PLAT TIDAK TERBACA  ",
                 "DEKATKAN KENDARAAN  ",
@@ -641,16 +663,18 @@ class SmartParkingExitGate:
         plate_text = best.get("plate_text", "")
         conf = best.get("confidence", 0.0)
 
+        annotated = draw_results(frame.copy(), [best])
         if config.SAVE_RESULTS:
-            annotated = draw_results(frame.copy(), [best])
             fname = os.path.join(config.OUTPUT_DIR, f"exit_{int(time.time())}.jpg")
             cv2.imwrite(fname, annotated)
 
         print(f"  [ALPR OK \u2705] Plat terdeteksi: {plate_text} (Akurasi: {conf:.0%})")
+        self._publish_capture(annotated, status="DETECTED", message="Plat terdeteksi, memverifikasi data...",
+                              plate=plate_text, confidence=conf)
 
         # Tampilkan visual deteksi plat pada jendela kamera
         if getattr(config, 'SHOW_PREVIEW', True):
-            annotated_disp = self._fit_preview(draw_results(frame.copy(), [best]))
+            annotated_disp = self._fit_preview(annotated)
             cv2.imshow("Smart Parking Gate ALPR - FT Untirta", annotated_disp)
             self._show_for(0.15 if rescan else 0.8)
 
@@ -667,6 +691,7 @@ class SmartParkingExitGate:
         # Jika kartu sudah di-tap duluan (initial_rfid), tetap lewat verifikasi agar UID-nya tercatat.
         if not veh_precheck.get("matched") and not initial_rfid:
             if veh_precheck.get("reason") == "DB_OFFLINE":
+                self._publish_capture(status="DB_OFFLINE", message="Database lokal offline, verifikasi ditolak")
                 self.handle_exit_failed({**veh_precheck, "confidence": conf}, reason="DB_OFFLINE")
                 return
 
@@ -676,6 +701,8 @@ class SmartParkingExitGate:
             if count < need and total < max_scans:
                 print(f"  [PINDAI ULANG] Plat '{plate_text}' tidak terdaftar ({count}/{need}, pindaian {total}/{max_scans}). "
                       "Memastikan dengan pindaian berikutnya...")
+                self._publish_capture(status="RESCAN", owner="Belum Terdaftar",
+                                      message=f"Plat belum terdaftar, pindai ulang {count}/{need} (pindaian {total}/{max_scans})")
                 self.hw.lcd.display(
                     "MEMASTIKAN PLAT...  ",
                     f"PLAT: {plate_text[:14]}",
@@ -695,6 +722,8 @@ class SmartParkingExitGate:
             info = {**veh_precheck, "confidence": conf}
             if final_plate != plate_text:
                 info["plate"] = final_plate.strip().upper()
+            self._publish_capture(status="UNREGISTERED", owner="Belum Terdaftar", plate=info.get("plate", final_plate),
+                                  message=f"Plat tidak terdaftar ({max(count, top_count)}x dari {total} pindaian), akses ditolak")
             self.handle_exit_failed(info, reason="UNREGISTERED")
             return
 
@@ -705,6 +734,7 @@ class SmartParkingExitGate:
         if not rfid_uid:
             # Pengendara belum tap kartu, minta tap sekarang
             timeout = getattr(config, 'RFID_WAIT_TIMEOUT', 12.0)
+            self._publish_capture(status="WAIT_RFID", owner=veh_precheck.get("owner_name") or "-", message="Plat terdaftar, menunggu tap kartu RFID...")
             start_wait = time.time()
             self.hw.buzzer_beep(0.1, 1)
 
@@ -802,6 +832,7 @@ class SmartParkingExitGate:
         if not rfid_uid:
             print("  [TIMEOUT] Batas waktu tap RFID habis.")
             self._log_gate_event("RFID TIMEOUT", plate=plate_text, confidence=conf)
+            self._publish_capture(status="RFID_TIMEOUT", message="Batas waktu tap RFID habis, verifikasi gagal")
             self.hw.lcd.display(
                 "WAKTU TAP HABIS!    ",
                 "KARTU BELUM DI-TAP  ",
@@ -824,6 +855,19 @@ class SmartParkingExitGate:
 
         auth_result = self.db.verify_dual_auth(plate_text, rfid_uid)
         auth_result["confidence"] = conf
+        verdict = auth_result.get("reason") or ("MATCH" if auth_result["verified"] else "UNREGISTERED")
+        verdict_msg = {
+            "MATCH": "Plat & RFID cocok, akses keluar diterima",
+            "AUTO_BOUND": "Kartu RFID baru diaktifkan, akses keluar diterima",
+            "RFID_MISMATCH": "Kartu RFID tidak sesuai dengan plat, akses ditolak",
+            "UNREGISTERED": "Plat tidak terdaftar, akses ditolak",
+            "DB_OFFLINE": "Database lokal offline, verifikasi ditolak",
+        }.get(verdict, "Verifikasi gagal, akses ditolak")
+        owner = auth_result.get("owner_name")
+        if auth_result["verified"] and owner:
+            verdict_msg += f" ({owner})"
+        self._publish_capture(status=verdict, message=verdict_msg,
+                              owner=owner or ("Belum Terdaftar" if verdict == "UNREGISTERED" else None))
 
         if auth_result["verified"]:
             # SUKSES: Plat dan RFID cocok pada kendaraan yang sama
