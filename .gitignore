@@ -5,3 +5,7 @@ cloudflared.exe
 # Cache bytecode Python (dibuat otomatis)
 __pycache__/
 *.pyc
+venv/
+
+# Hasil tangkapan kamera & log runtime
+output/
