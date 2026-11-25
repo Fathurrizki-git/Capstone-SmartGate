@@ -930,7 +930,7 @@ body.modal-open{overflow:hidden}
             <img id="cam-stream" class="cam-stream" alt="Live Camera ALPR" hidden>
             <div class="cam-ov">
               <div class="row"><span class="rec standby" id="cam-live-indicator"><span class="rec-dot"></span>STANDBY</span><span id="cam-time">--</span></div>
-              <div class="row"><span>CAM-01 | GATE ENTRY</span><span>ALPR v1.0</span></div>
+              <div class="row"><span></span><span>ALPR v1.0</span></div>
             </div>
           </div>
           <!-- Hasil Snapshot Sistem (kiri, 1/2 lebar) + data deteksi (kanan); sumber: server Python /capture -->
@@ -2705,7 +2705,6 @@ body.modal-open{overflow:hidden}
     }
     var now = new Date();
     ctx.font = 'bold 28px Arial'; ctx.fillStyle = '#fff';
-    ctx.fillText('CAM-01 | GATE ENTRY', 30, 50);
     ctx.fillText(fmtLongDate(now) + ' ' + fmtHMS(now), 30, h - 30);
     canvas.toBlob(function (blob) {
       if (!blob) { toast('Gagal membuat snapshot.', 'error'); return; }
