@@ -636,11 +636,10 @@ body.modal-open{overflow:hidden}
     <div class="sb-footer">
       <div class="help-card">
         <span class="hc-ic" data-icon="camera" data-size="16"></span>
-        <h4>Registrasi Civitas (&lt;1m)</h4>
-        <p style="margin-bottom:10px">Scan QR Code atau daftar kilat di gerbang keluar.</p>
+        <h4>Registrasi Civitas</h4>
+        <p style="margin-bottom:10px">Daftar kilat kendaraan civitas di gerbang keluar.</p>
         <div style="display:flex;gap:6px">
-          <button type="button" class="btn" id="sb-btn-qr" style="flex:1;background:#fff;color:var(--bg);padding:7px 10px;font-size:11px;border-radius:10px">📱 QR Portal</button>
-          <button type="button" class="btn" id="sb-btn-quickreg" style="flex:1;background:rgba(255,255,255,.18);color:#fff;padding:7px 10px;font-size:11px;border-radius:10px">Quick Registration</button>
+          <button type="button" class="btn" id="sb-btn-quickreg" style="flex:1;background:#fff;color:var(--bg);padding:7px 10px;font-size:11px;border-radius:10px">Quick Registration</button>
         </div>
       </div>
       <div class="user-chip">
@@ -822,9 +821,6 @@ body.modal-open{overflow:hidden}
           </div>
         </div>
         <div class="gcc-actions">
-          <button type="button" class="btn btn-ghost" id="btn-open-qr-modal" style="border:1px solid rgba(44,217,255,.4);color:var(--cyan)">
-            <span>QR Code Quick Registration</span>
-          </button>
           <a href="/register" target="_blank" rel="noopener" class="btn btn-primary">
             <span>Quick Registration Form</span>
           </a>
@@ -926,7 +922,7 @@ body.modal-open{overflow:hidden}
         </div>
         <div class="card">
           <div class="card-head">
-            <div><div class="card-title">Real-Time Camera</div><div class="card-sub">CAM-01 &bull; Gerbang Masuk FT Untirta</div></div>
+            <div><div class="card-title">Real-Time Camera</div><div class="card-sub">CAM-01 | Gerbang Masuk FT Untirta</div></div>
             <span class="chip" id="cam-status"><span class="live-dot" style="background:var(--graygray-400)"></span>Standby (Kamera ALPR)</span>
           </div>
           <div class="cam">
@@ -934,7 +930,7 @@ body.modal-open{overflow:hidden}
             <img id="cam-stream" class="cam-stream" alt="Live Camera ALPR" hidden>
             <div class="cam-ov">
               <div class="row"><span class="rec standby" id="cam-live-indicator"><span class="rec-dot"></span>STANDBY</span><span id="cam-time">--</span></div>
-              <div class="row"><span>CAM-01 &bull; GATE ENTRY</span><span>ALPR v1.0</span></div>
+              <div class="row"><span>CAM-01 | GATE ENTRY</span><span>ALPR v1.0</span></div>
             </div>
           </div>
           <!-- Hasil Snapshot Sistem (kiri, 1/2 lebar) + data deteksi (kanan); sumber: server Python /capture -->
@@ -984,7 +980,7 @@ body.modal-open{overflow:hidden}
         <span style="width:40px;height:40px;border-radius:12px;background:rgba(0,117,255,.18);color:#5fa8ff;display:inline-flex;align-items:center;justify-content:center" data-icon="logout" data-size="20"></span>
         <div>
           <h3 id="confirm-logout-title" class="card-title" style="font-size:16px">Keluar dari Dashboard?</h3>
-          <p class="muted" style="font-size:12px">Smart Parking Gate &bull; FT Untirta</p>
+          <p class="muted" style="font-size:12px">Smart Parking Gate | FT Untirta</p>
         </div>
       </div>
     </div>
@@ -1046,7 +1042,7 @@ body.modal-open{overflow:hidden}
         <span style="width:40px;height:40px;border-radius:12px;background:rgba(255,181,71,.18);color:var(--orange);display:inline-flex;align-items:center;justify-content:center" data-icon="alert" data-size="22"></span>
         <div>
           <h3 id="confirm-gate-title" class="card-title" style="font-size:16px">Konfirmasi Buka Palang</h3>
-          <p class="muted" style="font-size:12px">Gerbang Keluar &bull; FT Untirta</p>
+          <p class="muted" style="font-size:12px">Gerbang Keluar | FT Untirta</p>
         </div>
       </div>
     </div>
@@ -1172,43 +1168,6 @@ body.modal-open{overflow:hidden}
         <button type="submit" class="btn btn-green" id="qreg-submit-btn" style="border-radius:12px;padding:10px 18px">Simpan &amp; Buka Palang</button>
       </div>
     </form>
-  </div>
-</div>
-
-<!-- Modal QR Code Portal Pendaftaran Mandiri (/register) -->
-<div class="modal" id="qr-portal-modal" hidden role="dialog" aria-modal="true" aria-labelledby="qr-portal-title">
-  <div class="modal-card" style="max-width:440px;text-align:center;border:1px solid rgba(44,217,255,.4);box-shadow:0 18px 50px rgba(0,0,0,.85)">
-    <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:12px;text-align:left">
-      <div>
-        <h3 id="qr-portal-title" class="card-title" style="font-size:16px">📱 QR Code Registrasi Mandiri Civitas</h3>
-        <p class="muted" style="font-size:12px">Scan via HP (&lt; 40 Detik) &bull; Auto-Bind RFID di Gerbang</p>
-      </div>
-    </div>
-
-    <div style="background:#fff;padding:16px;border-radius:18px;display:inline-flex;flex-direction:column;align-items:center;margin:8px auto 14px;box-shadow:0 10px 30px rgba(0,0,0,.4)">
-      <img id="qr-portal-img" width="210" height="210" alt="QR Code Portal Registrasi" style="display:block;border-radius:8px">
-      <div style="color:#060b26;font-weight:800;font-size:11px;letter-spacing:1px;margin-top:8px">SCAN UNTUK DAFTAR PLAT NOMOR</div>
-    </div>
-
-    <p style="font-size:12.5px;color:var(--graygray-300);line-height:1.5;margin-bottom:12px">
-      Bagikan kartu RFID kosong kepada civitas, lalu minta mereka scan QR Code ini untuk mengisi <b>Nama, NIM/NIP, &amp; Plat Nomor</b>. Kartu akan aktif otomatis saat tap pertama di gerbang!
-    </p>
-
-    <div style="text-align:left;margin-bottom:14px">
-      <label for="qr-portal-url" style="display:block;font-size:11.5px;font-weight:600;color:var(--graygray-400);margin-bottom:5px">Link Portal Registrasi Mandiri:</label>
-      <div style="display:flex;gap:8px">
-        <div class="input sm" style="flex:1">
-          <input type="text" id="qr-portal-url" readonly>
-        </div>
-        <button type="button" class="btn btn-primary" id="btn-copy-reg-url" style="padding:0 14px">Salin</button>
-      </div>
-    </div>
-
-    <div style="display:flex;gap:10px;justify-content:center">
-      <button type="button" class="btn btn-ghost" id="qr-portal-close">Tutup</button>
-      <a href="/register" target="_blank" class="btn btn-ghost" style="flex:1">🔗 Buka Halaman /register</a>
-      <button type="button" class="btn btn-primary" id="btn-print-qr" style="flex:1">🖨️ Cetak Poster QR</button>
-    </div>
   </div>
 </div>
 
@@ -1510,8 +1469,7 @@ body.modal-open{overflow:hidden}
                   ($('#confirm-del-modal') && !$('#confirm-del-modal').hidden) ||
                   ($('#confirm-logout-modal') && !$('#confirm-logout-modal').hidden) ||
                   ($('#notif-summary-modal') && !$('#notif-summary-modal').hidden) ||
-                  ($('#quick-reg-modal') && !$('#quick-reg-modal').hidden) ||
-                  ($('#qr-portal-modal') && !$('#qr-portal-modal').hidden);
+                  ($('#quick-reg-modal') && !$('#quick-reg-modal').hidden);
     if (anyOpen) {
       document.body.classList.add('modal-open');
     } else {
@@ -1552,7 +1510,7 @@ body.modal-open{overflow:hidden}
       '<dt>Kategori</dt><dd>' + esc(titleCase(l.category)) + '</dd>' +
       '<dt>NIM / NIP</dt><dd>' + esc(l.nim_nip || '-') + '</dd>' +
       '<dt>Status</dt><dd>' + (l.status === 'TERDAFTAR' ? '<span class="up">&#10003; TERDAFTAR</span>' : '<span style="color:var(--orange)">&#9888; ' + esc(l.status === 'TIDAK TERDAFTAR' ? 'BELUM TERDAFTAR' : l.status) + '</span>') + '</dd>' +
-      '<dt>Waktu</dt><dd>' + esc(fmtLongDate(l.ts)) + ' &bull; ' + fmtHMS(l.ts) + ' WIB</dd>' +
+      '<dt>Waktu</dt><dd>' + esc(fmtLongDate(l.ts)) + ' | ' + fmtHMS(l.ts) + ' WIB</dd>' +
       '<dt>Confidence</dt><dd>' + l.conf + '%' + (l.conf < 80 ? ' <span style="color:var(--orange)">(perlu verifikasi)</span>' : '') + '</dd>' +
       '<dt>Total aktivitas</dt><dd>' + history + ' tercatat</dd>' +
       '</dl>'
@@ -1602,7 +1560,7 @@ body.modal-open{overflow:hidden}
           '<div style="font-weight:700;font-size:15px;color:#fff;display:flex;align-items:center;gap:8px;flex-wrap:wrap">' +
             esc(a.title) + (a.tag ? ' <span class="alert-tag ' + tagClass + '">' + esc(a.tag) + '</span>' : '') +
           '</div>' +
-          '<div style="font-size:12px;color:var(--graygray-400);margin-top:3px">' + esc(fmtLongDate(a.ts)) + ' &bull; ' + fmtHMS(a.ts) + ' WIB</div>' +
+          '<div style="font-size:12px;color:var(--graygray-400);margin-top:3px">' + esc(fmtLongDate(a.ts)) + ' | ' + fmtHMS(a.ts) + ' WIB</div>' +
         '</div>' +
       '</div>' +
 
@@ -1652,7 +1610,7 @@ body.modal-open{overflow:hidden}
     var u = unreadCount();
     var subEl = $('#notif-summary-sub');
     if (subEl) {
-      subEl.textContent = u ? (u + ' belum dibaca • Klik untuk membuka di Security Notification') : 'Semua notifikasi dibaca • Klik untuk membuka di Security Notification';
+      subEl.textContent = u ? (u + ' belum dibaca | Klik untuk membuka di Security Notification') : 'Semua notifikasi dibaca | Klik untuk membuka di Security Notification';
     }
 
     var listEl = $('#notif-summary-body');
@@ -1695,7 +1653,7 @@ body.modal-open{overflow:hidden}
             (a.rfid ? ('<div style="font-size:12px;color:var(--graygray-300);margin-top:6px">UID RFID: <span style="color:#fff;font-family:ui-monospace,Consolas,monospace">' + esc(a.rfid) + '</span></div>') : '') +
             // Tanggal
             '<div style="font-size:11px;color:var(--graygray-400);margin-top:6px">' +
-              esc(fmtLongDate(a.ts)) + ' &bull; ' + fmtHM(a.ts) + ' WIB' +
+              esc(fmtLongDate(a.ts)) + ' | ' + fmtHM(a.ts) + ' WIB' +
             '</div>' +
           '</div>' +
         '</div>';
@@ -2086,7 +2044,7 @@ body.modal-open{overflow:hidden}
     $('#cat-list').innerHTML = CATEGORIES.map(function (cat) {
       var n = outs.filter(function (l) { return l.category === cat; }).length;
       var p = outs.length ? Math.round(n / outs.length * 100) : 0;
-      return '<div class="cat-item"><div class="ci-top"><span>' + esc(titleCase(cat)) + '</span><span>' + n + ' &bull; ' + p + '%</span></div>' +
+      return '<div class="cat-item"><div class="ci-top"><span>' + esc(titleCase(cat)) + '</span><span>' + n + ' | ' + p + '%</span></div>' +
         '<div class="bar"><i style="width:' + p + '%;background:' + CAT_COLORS[cat] + '"></i></div></div>';
     }).join('') +
       '<div class="cap-stat" style="margin-top:6px"><div class="k">Rata-rata confidence ALPR hari ini</div><div class="v">' +
@@ -2136,7 +2094,7 @@ body.modal-open{overflow:hidden}
       count++; tOut += v;
       if (v > peak) { peak = v; peakAt = td.tips[i]; }
     });
-    $('#trend-sub').textContent = p.sub + (trendCache.key !== key && trendCache.loading ? ' • memuat...' : '');
+    $('#trend-sub').textContent = p.sub + (trendCache.key !== key && trendCache.loading ? ' | memuat...' : '');
     $('#t-out').textContent = tOut;
     $('#t-peak').textContent = Math.max(0, peak);
     $('#t-peak-at').textContent = peak > 0 ? peakAt : '-';
@@ -2747,7 +2705,7 @@ body.modal-open{overflow:hidden}
     }
     var now = new Date();
     ctx.font = 'bold 28px Arial'; ctx.fillStyle = '#fff';
-    ctx.fillText('CAM-01 \u2022 GATE ENTRY', 30, 50);
+    ctx.fillText('CAM-01 | GATE ENTRY', 30, 50);
     ctx.fillText(fmtLongDate(now) + ' ' + fmtHMS(now), 30, h - 30);
     canvas.toBlob(function (blob) {
       if (!blob) { toast('Gagal membuat snapshot.', 'error'); return; }
@@ -2905,7 +2863,7 @@ body.modal-open{overflow:hidden}
     $('#clock').textContent = fmtHMS(n);
     var cb = $('#clock-big'); if (cb) cb.textContent = fmtHMS(n);
     var db = $('#date-big'); if (db) db.textContent = fmtLongDate(n);
-    var ct = $('#cam-time'); if (ct) ct.textContent = fmtLongDate(n) + ' \u2022 ' + fmtHMS(n);
+    var ct = $('#cam-time'); if (ct) ct.textContent = fmtLongDate(n) + ' | ' + fmtHMS(n);
   }
 
   /* =========================================================
@@ -3014,7 +2972,7 @@ body.modal-open{overflow:hidden}
     var st = $('#gate-current-status');
     if (st) {
       st.className = 'gcc-status open';
-      st.innerHTML = '<span class="live-dot" style="background:var(--green)"></span>PALANG TERBUKA (90°) &bull; Silakan Melintas';
+      st.innerHTML = '<span class="live-dot" style="background:var(--green)"></span>PALANG TERBUKA (90°) | Silakan Melintas';
       setTimeout(function () {
         if (st) {
           st.className = 'gcc-status';
@@ -3086,7 +3044,7 @@ body.modal-open{overflow:hidden}
     $('#qreg-sub').hidden = !isEdit;
     $('#qreg-submit-btn').textContent = isEdit
       ? '💾 Simpan Perubahan Data'
-      : (openGateDefault ? '⚡ Simpan & Buka Palang Sekarang' : '💾 Simpan Kendaraan ke Database');
+      : (openGateDefault ? 'Simpan & Buka Palang Sekarang' : 'Simpan Kendaraan ke Database');
 
     $('#quick-reg-modal').hidden = false;
     updateModalScrollLock();
@@ -3157,7 +3115,7 @@ body.modal-open{overflow:hidden}
         var st = $('#gate-current-status');
         if (st) {
           st.className = 'gcc-status open';
-          st.innerHTML = '<span class="live-dot" style="background:var(--green)"></span>PALANG TERBUKA (90°) &bull; Quick-Register: ' + esc(plate);
+          st.innerHTML = '<span class="live-dot" style="background:var(--green)"></span>PALANG TERBUKA (90°) | Quick-Register: ' + esc(plate);
           setTimeout(function () {
             if (st) {
               st.className = 'gcc-status';
@@ -3292,30 +3250,6 @@ body.modal-open{overflow:hidden}
     } catch (err) {
       toast('Gagal menghapus: ' + (err.message || err), 'error');
     }
-  }
-
-  function openQrPortalModal() {
-    var origin = window.location.origin;
-    var regUrl = origin + '/register';
-    if (window.location.protocol === 'file:') {
-      regUrl = window.location.href.replace(/index\.html.*$/, 'register.html');
-    }
-    var urlText = $('#qr-portal-url-text');
-    if (urlText) urlText.textContent = regUrl;
-    var openLink = $('#qr-portal-open-link');
-    if (openLink) openLink.href = regUrl;
-    var qrImg = $('#qr-portal-img');
-    if (qrImg) {
-      qrImg.src = 'https://api.qrserver.com/v1/create-qr-code/?size=240x240&margin=8&data=' + encodeURIComponent(regUrl);
-    }
-    $('#qr-portal-modal').hidden = false;
-    updateModalScrollLock();
-  }
-
-  function closeQrPortalModal() {
-    var m = $('#qr-portal-modal');
-    if (m) m.hidden = true;
-    updateModalScrollLock();
   }
 
   /* =========================================================
@@ -3548,42 +3482,13 @@ body.modal-open{overflow:hidden}
         var isEdit = Boolean($('#qreg-edit-id').value);
         if (!isEdit) {
           $('#qreg-submit-btn').textContent = this.checked
-            ? '⚡ Simpan & Buka Palang Sekarang'
-            : '💾 Simpan Kendaraan ke Database';
+            ? 'Simpan & Buka Palang Sekarang'
+            : 'Simpan Kendaraan ke Database';
         }
       });
     }
     if ($('#quick-reg-form')) {
       $('#quick-reg-form').addEventListener('submit', submitQuickRegister);
-    }
-
-    // QR Portal Modal
-    ['#sb-btn-qr', '#btn-open-qr-modal'].forEach(function (sel) {
-      var b = $(sel);
-      if (b) {
-        b.addEventListener('click', function () {
-          document.body.classList.remove('sb-open');
-          openQrPortalModal();
-        });
-      }
-    });
-    if ($('#qr-portal-close')) $('#qr-portal-close').addEventListener('click', closeQrPortalModal);
-    if ($('#qr-portal-modal')) {
-      $('#qr-portal-modal').addEventListener('click', function (e) {
-        if (e.target === this) closeQrPortalModal();
-      });
-    }
-    if ($('#qr-copy-url')) {
-      $('#qr-copy-url').addEventListener('click', function () {
-        var url = ($('#qr-portal-url-text') && $('#qr-portal-url-text').textContent) || (window.location.origin + '/register');
-        if (navigator.clipboard && navigator.clipboard.writeText) {
-          navigator.clipboard.writeText(url).then(function () {
-            toast('Link Portal Pendaftaran berhasil disalin!', 'success');
-          });
-        } else {
-          toast('Link: ' + url, 'info');
-        }
-      });
     }
 
     // Registered Vehicles Filters & Actions
@@ -3666,7 +3571,7 @@ body.modal-open{overflow:hidden}
     $('#modal').addEventListener('click', function (e) { if (e.target === this) closeModal(); });
 
     // Prevent backdrop scroll wheel/touch
-    ['#modal', '#confirm-gate-modal', '#notif-summary-modal', '#quick-reg-modal', '#qr-portal-modal'].forEach(function (id) {
+    ['#modal', '#confirm-gate-modal', '#notif-summary-modal', '#quick-reg-modal'].forEach(function (id) {
       var m = $(id);
       if (!m) return;
       m.addEventListener('wheel', function (e) {
@@ -3719,7 +3624,6 @@ body.modal-open{overflow:hidden}
         closeLogoutModal();
         closeNotifSummaryModal();
         closeQuickRegModal();
-        closeQrPortalModal();
         document.body.classList.remove('sb-open');
       }
     });

@@ -66,27 +66,35 @@ class LCDController:
             self._sent_lines = list(self.lines)
 
     def display(self, line1="", line2="", line3="", line4=""):
-        """Tampilkan 4 baris teks pada LCD 20x4 (otomatis center/rata)."""
-        self.lines = [line1[:self.cols], line2[:self.cols], line3[:self.cols], line4[:self.cols]]
+        """Tampilkan teks pada LCD (otomatis menyesuaikan ukuran 16x2 maupun 20x4)."""
+        raw_lines = [line1, line2, line3, line4][:self.rows]
+        self.lines = [str(l).strip()[:self.cols].center(self.cols) for l in raw_lines]
 
         # Cetak ke layar fisik via ESP32 jika terhubung
         if self._push():
             return
 
         # Tampilan Simulasi di Console
-        print("\n+--------------------+ (LCD 20x4)")
+        border = "+" + "-" * self.cols + "+"
+        print(f"\n{border} (LCD {self.cols}x{self.rows})")
         for l in self.lines:
             print(f"|{l.center(self.cols)}|")
-        print("+--------------------+\n")
+        print(f"{border}\n")
 
     def display_standby(self):
         """Tampilan standby gerbang keluar."""
-        self.display(
-            " GERBANG KELUAR FT  ",
-            "  UNTIRTA CILEGON   ",
-            "SCAN PLAT / TAP RFID",
-            "MOHON DEKATI PALANG "
-        )
+        if self.rows <= 2:
+            self.display(
+                "GERBANG KELUAR",
+                "SCAN PLAT / RFID"
+            )
+        else:
+            self.display(
+                " GERBANG KELUAR FT  ",
+                "  UNTIRTA CILEGON   ",
+                "SCAN PLAT / TAP RFID",
+                "MOHON DEKATI PALANG "
+            )
 
 
 class HardwareManager:
@@ -100,6 +108,7 @@ class HardwareManager:
         self.rfid_queue = queue.Queue()
         self._rfid_buffer = ""
         self._rfid_last_key = 0.0
+        self._gate_open = False
 
         if self.esp.connected:
             print("[OK] ESP32 siap mengendalikan Sensor IR, Push Button, Servo, Buzzer, dan LCD.")
@@ -123,24 +132,52 @@ class HardwareManager:
             print(f"  [SERVO] Palang diputar ke sudut {angle}° -> Posisi: {state}")
 
     def open_gate(self):
-        """Buka palang gerbang."""
+        """Buka palang gerbang (buzzer menyala terus hingga palang menutup kembali)."""
+        self._gate_open = True
+        self.buzzer_on()
         self.set_servo_angle(config.SERVO_OPEN_ANGLE)
         print("  [GERBANG] Palang TERBUKA.")
 
     def close_gate(self):
-        """Tutup palang gerbang."""
+        """Tutup palang gerbang (matikan buzzer setelah palang tiba di posisi 0°)."""
+        was_open = self._gate_open
+        self._gate_open = False
         self.set_servo_angle(config.SERVO_CLOSE_ANGLE)
+        if was_open:
+            time.sleep(0.15)  # Tunggu servo selesai settle 0° (total 0.5s = SERVO_SETTLE_MS)
+            self.buzzer_off()
         print("  [GERBANG] Palang TERTUTUP.")
+
+    def buzzer_on(self):
+        """Nyalakan buzzer terus-menerus (selama palang terbuka)."""
+        if self.esp.connected and self.esp.send("BUZZ:ON"):
+            print("  [BUZZER] -> ESP32 (BUZZ:ON)")
+        else:
+            print("  [BUZZER] (SIMULASI - ESP32 offline) ON")
+
+    def buzzer_off(self):
+        """Matikan buzzer."""
+        if self.esp.connected and self.esp.send("BUZZ:OFF"):
+            print("  [BUZZER] -> ESP32 (BUZZ:OFF)")
+        else:
+            print("  [BUZZER] (SIMULASI - ESP32 offline) OFF")
 
     def buzzer_beep(self, duration=0.15, count=1):
         """Bunyikan buzzer (konfirmasi akses diterima). Pola bunyi dijalankan non-blocking di ESP32."""
-        if not (self.esp.connected and self.esp.send(f"BEEP:{int(duration * 1000)}:{count}")):
-            print(f"  [BUZZER] BEEP! x{count} (Flash)")
+        cmd = f"BEEP:{int(duration * 1000)}:{count}"
+        if self.esp.connected and self.esp.send(cmd):
+            print(f"  [BUZZER] -> ESP32 ({cmd})")
+        else:
+            print(f"  [BUZZER] (SIMULASI - ESP32 offline) BEEP! x{count} (Flash)")
 
-    def buzzer_alert(self):
+    def buzzer_alert(self, duration=2.5):
         """Bunyikan alarm buzzer panjang (akses ditolak / tidak terdaftar)."""
-        if not (self.esp.connected and self.esp.send("ALERT:800")):
-            print("  [BUZZER] ALARM PANJANG! (Akses Ditolak)")
+        ms = int(duration * 1000)
+        cmd = f"ALERT:{ms}"
+        if self.esp.connected and self.esp.send(cmd):
+            print(f"  [BUZZER] -> ESP32 ({cmd})")
+        else:
+            print("  [BUZZER] (SIMULASI - ESP32 offline) ALARM PANJANG! (Akses Ditolak)")
 
     def is_vehicle_at_sensor1(self) -> bool:
         """Cek apakah Sensor IR 1 (sebelum palang) mendeteksi kendaraan mendekat."""
@@ -234,6 +271,7 @@ class HardwareManager:
         """Lepaskan koneksi ESP32 saat aplikasi ditutup."""
         print("[INFO] Membersihkan resource perangkat keras...")
         try:
+            self.buzzer_off()
             self.lcd.clear()
             self.esp.close()
         except Exception:

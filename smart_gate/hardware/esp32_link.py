@@ -125,8 +125,10 @@ class ESP32Link:
 
     def _reader_loop(self):
         last_ping = 0.0
+        timed_out_logged = False
         while not self._stop.is_set():
             if self.ser is None:
+                timed_out_logged = False
                 time.sleep(2.0)
                 if self._connect() and self.on_ready:
                     self.on_ready()
@@ -138,7 +140,16 @@ class ESP32Link:
                     last_ping = now
                 raw = self.ser.readline()
                 if raw:
+                    timed_out_logged = False
                     self._handle_line(raw.decode('ascii', errors='ignore').strip())
+                else:
+                    silence = time.time() - self.last_seen
+                    if silence >= self.heartbeat_timeout and not timed_out_logged:
+                        print(f"[WARN] ESP32 pada {self.port} tidak mengirim heartbeat > {self.heartbeat_timeout:.1f}s (sementara masuk mode simulasi).")
+                        timed_out_logged = True
+                    if silence >= max(self.heartbeat_timeout * 2.5, 5.0):
+                        print(f"[WARN] ESP32 pada {self.port} tidak merespons > {silence:.1f}s. Mencoba hubungkan ulang...")
+                        self._close()
             except (serial.SerialException, OSError, AttributeError) as e:
                 print(f"[WARN] Koneksi ESP32 terputus: {e}")
                 self._close()
@@ -170,6 +181,10 @@ class ESP32Link:
                 if active:
                     with self._event_lock:
                         self._button_presses += 1
+        elif line.startswith("READY:LCD_OK"):
+            print(f"[OK] LCD I2C ESP32 siap ({line.split(':', 1)[1]}).")
+            if self.on_ready:
+                self.on_ready()
         elif line.startswith("READY"):
             first_boot = self.firmware is None
             self.firmware = line.split(":", 1)[1] if ":" in line else "ESP32"

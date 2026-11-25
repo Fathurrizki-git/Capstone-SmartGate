@@ -47,22 +47,17 @@ button,input,select{font-family:inherit}
 
 /* Header Brand */
 .brand-header{
-  display:flex;align-items:center;justify-content:space-between;gap:12px;
-  margin-bottom:20px;padding:12px 18px;border-radius:18px;
+  display:flex;align-items:center;justify-content:center;gap:14px;
+  margin-bottom:20px;padding:14px 20px;border-radius:18px;
   background:linear-gradient(128deg,rgba(6,11,38,.82) 0%,rgba(26,31,55,.52) 100%);
   border:1px solid rgba(255,255,255,.1);backdrop-filter:blur(24px);
   box-shadow:0 10px 28px rgba(0,0,0,.35);
 }
-.brand-left{display:flex;align-items:center;gap:12px}
-.logo{position:relative;display:inline-flex;width:44px;height:44px;flex-shrink:0}
+.brand-left{display:flex;align-items:center;gap:14px}
+.logo{position:relative;display:inline-flex;width:46px;height:46px;flex-shrink:0}
 .logo svg,.logo img{width:100%;height:100%;object-fit:contain}
-.brand-title{font-weight:800;font-size:13px;letter-spacing:1.2px;line-height:1.25;color:#fff}
-.brand-sub{font-size:11px;color:var(--cyan);font-weight:600;margin-top:2px}
-.badge-fast{
-  display:inline-flex;align-items:center;gap:5px;padding:6px 10px;border-radius:99px;
-  background:rgba(1,181,116,.16);border:1px solid rgba(1,181,116,.4);
-  color:#42f5b3;font-size:11px;font-weight:700;white-space:nowrap;
-}
+.brand-title{font-weight:800;font-size:14.5px;letter-spacing:1.3px;line-height:1.25;color:#fff}
+.brand-sub{font-size:11.5px;color:var(--cyan);font-weight:600;letter-spacing:.4px;margin-top:2px}
 
 /* Main Card */
 .reg-card{
@@ -156,17 +151,18 @@ button,input,select{font-family:inherit}
 
 /* Category Cards */
 .cat-grid{
-  display:grid;grid-template-columns:repeat(2,1fr);gap:8px;
+  display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:10px;
 }
+.field label.cat-opt,
 .cat-opt{
-  position:relative;cursor:pointer;
+  display:block;width:100%;position:relative;cursor:pointer;
 }
 .cat-opt input{position:absolute;opacity:0;pointer-events:none}
 .cat-pill{
   display:flex;flex-direction:column;align-items:center;justify-content:center;
-  gap:4px;padding:11px 8px;border-radius:14px;text-align:center;
+  width:100%;min-height:62px;gap:4px;padding:12px 10px;border-radius:14px;text-align:center;
   border:1.5px solid rgba(255,255,255,.12);background:rgba(255,255,255,.03);
-  transition:all .15s;font-size:12px;font-weight:700;color:var(--gray-300);
+  transition:all .15s;font-size:12.5px;font-weight:700;color:var(--gray-300);
 }
 .cat-pill small{font-size:10px;font-weight:500;color:var(--gray-400)}
 .cat-opt input:checked + .cat-pill{
@@ -262,6 +258,34 @@ button,input,select{font-family:inherit}
 }
 .step-guide b{color:#fff}
 
+/* Access Level Bar (Guest / Admin) */
+.access-bar{
+  display:flex;align-items:center;justify-content:space-between;gap:10px;flex-wrap:wrap;
+  padding:10px 14px;border-radius:14px;margin-bottom:16px;
+  background:rgba(255,255,255,.04);border:1px solid rgba(255,255,255,.1);
+  font-size:12px;
+}
+.access-bar.is-admin{
+  background:rgba(1,181,116,.12);border-color:rgba(1,181,116,.38);
+}
+.access-badge{
+  display:inline-flex;align-items:center;gap:6px;font-weight:700;color:var(--gray-300);
+}
+.access-bar.is-admin .access-badge{color:#42f5b3}
+.btn-xs{
+  padding:6px 12px;border-radius:10px;font-size:11.5px;font-weight:700;
+}
+.admin-login-box{
+  border-radius:16px;padding:16px;margin-bottom:16px;
+  background:rgba(6,11,35,.88);border:1px solid rgba(44,217,255,.3);
+}
+.admin-lock-box{
+  margin-top:16px;padding:14px 16px;border-radius:14px;
+  background:rgba(255,255,255,.04);border:1px dashed rgba(255,255,255,.18);
+  display:flex;align-items:center;justify-content:space-between;gap:12px;flex-wrap:wrap;
+  font-size:12px;color:var(--gray-300);
+}
+
 .footer-links{
   margin-top:20px;text-align:center;font-size:12px;color:var(--gray-400);
   display:flex;justify-content:center;gap:16px;flex-wrap:wrap;
@@ -290,7 +314,6 @@ button,input,select{font-family:inherit}
         <div class="brand-sub">FAKULTAS TEKNIK UNTIRTA</div>
       </div>
     </div>
-    <span class="badge-fast">⚡ &lt; 1 Menit</span>
   </header>
 
   <main class="reg-card">
@@ -321,7 +344,7 @@ button,input,select{font-family:inherit}
           <div class="plate-preview-label">Preview Plat Nomor Kendaraan</div>
           <div class="id-plate">
             <div class="id-plate-num" id="plate-preview-text">A 1234 BC</div>
-            <div class="id-plate-sub">FT UNTIRTA &bull; DUAL-AUTH</div>
+            <div class="id-plate-sub">FT UNTIRTA | DUAL-AUTH</div>
           </div>
         </div>
 
@@ -335,11 +358,11 @@ button,input,select{font-family:inherit}
             <div class="plate-grid">
               <div class="plate-box">
                 <input type="text" id="p-prefix" maxlength="2" placeholder="A" autocomplete="off" aria-label="Kode Wilayah Plat" required>
-                <span>Wilayah (A/B)</span>
+                <span>Wilayah</span>
               </div>
               <div class="plate-box">
                 <input type="text" id="p-number" inputmode="numeric" maxlength="4" placeholder="1234" autocomplete="off" aria-label="Nomor Polisi" required>
-                <span>Angka (1-4 Digit)</span>
+                <span>Angka</span>
               </div>
               <div class="plate-box">
                 <input type="text" id="p-suffix" maxlength="3" placeholder="BC" autocomplete="off" aria-label="Seri Huruf Belakang">
@@ -433,7 +456,7 @@ button,input,select{font-family:inherit}
           <div id="reg-error" class="msg-box error" role="alert" hidden></div>
 
           <button type="submit" class="btn btn-primary btn-block" id="btn-submit-reg">
-            <span>🚀 Daftarkan Kendaraan Sekarang</span>
+            <span>Daftarkan Kendaraan Sekarang</span>
           </button>
         </form>
       </div>
@@ -488,15 +511,46 @@ button,input,select{font-family:inherit}
     </section>
 
     <!-- ==========================================
-         TAB 2: CEK STATUS & GANTI PLAT SEMENTARA
+         TAB 2: CEK STATUS & GANTI PLAT (GUEST / ADMIN)
          ========================================== -->
     <section id="view-check" hidden>
-      <div style="text-align:center;margin-bottom:18px">
-        <h2 style="font-size:19px;font-weight:800;margin:0">Cek Status &amp; Ganti Plat Nomor</h2>
-        <p style="font-size:12.5px;color:var(--gray-400);margin:4px 0 0">
-          Cari menggunakan <b>NIM/NIP</b> atau <b>Plat Nomor</b> untuk mengecek status kartu RFID atau mengganti plat kendaraan Anda.
+      <div style="text-align:center;margin-bottom:14px">
+        <h2 style="font-size:19px;font-weight:800;margin:0" id="check-heading">Cek Status Kendaraan</h2>
+        <p style="font-size:12.5px;color:var(--gray-400);margin:4px 0 0" id="check-sub">
+          Cari menggunakan <b>NIM/NIP</b> atau <b>Plat Nomor</b> untuk mengecek status kartu RFID kendaraan Anda.
         </p>
       </div>
+
+      <!-- Bar Status Akses (Guest / Admin) -->
+      <div class="access-bar" id="access-bar">
+        <span class="access-badge" id="access-badge-text">Guest</span>
+        <div style="display:flex;gap:8px">
+          <button type="button" class="btn btn-primary btn-xs" id="btn-show-admin-login">Masuk Admin</button>
+          <button type="button" class="btn btn-ghost btn-xs" id="btn-admin-logout" hidden>Keluar Admin</button>
+        </div>
+      </div>
+
+      <!-- Form Login Admin (untuk membuka akses Ganti Plat) -->
+      <form id="admin-login-box" class="admin-login-box" hidden>
+        <div style="font-weight:700;font-size:13px;margin-bottom:10px;color:#fff">Login Admin untuk Ganti Plat</div>
+        <div class="field" style="margin-bottom:10px">
+          <label for="adm-email"><span>Email Admin</span></label>
+          <div class="input-wrap" style="height:42px">
+            <input type="email" id="adm-email" placeholder="admin@untirta.ac.id" autocomplete="username" required>
+          </div>
+        </div>
+        <div class="field" style="margin-bottom:12px">
+          <label for="adm-pass"><span>Password</span></label>
+          <div class="input-wrap" style="height:42px">
+            <input type="password" id="adm-pass" placeholder="Masukkan password admin" autocomplete="current-password" required>
+          </div>
+        </div>
+        <div id="adm-login-msg" class="msg-box error" hidden style="margin-bottom:12px"></div>
+        <div style="display:flex;gap:8px">
+          <button type="submit" class="btn btn-primary" id="btn-adm-submit" style="flex:1;padding:10px 14px;font-size:12.5px">Masuk</button>
+          <button type="button" class="btn btn-ghost" id="btn-adm-cancel" style="padding:10px 14px;font-size:12.5px">Batal</button>
+        </div>
+      </form>
 
       <form id="form-lookup" style="margin-bottom:18px">
         <div class="field">
@@ -532,17 +586,23 @@ button,input,select{font-family:inherit}
           </div>
         </div>
 
-        <!-- Form Ganti Plat Kendaraan -->
-        <form id="form-update-plate" style="margin-top:16px;padding-top:16px;border-top:1px solid rgba(255,255,255,.1)">
+        <!-- Info Terkunci untuk Guest -->
+        <div id="guest-lock-notice" class="admin-lock-box">
+          <span>Ganti plat nomor hanya dapat dilakukan oleh <b>Admin</b>.</span>
+          <button type="button" class="btn btn-ghost btn-xs" id="btn-lock-admin-login">Login Admin</button>
+        </div>
+
+        <!-- Form Ganti Plat Kendaraan (Hanya Admin) -->
+        <form id="form-update-plate" hidden style="margin-top:16px;padding-top:16px;border-top:1px solid rgba(255,255,255,.1)">
           <div class="field">
             <label for="upd-plate">
-              <span>🔄 Ganti Plat Nomor Kendaraan (Kartu RFID Tetap Sama)</span>
+              <span>Ganti Plat Nomor Kendaraan (Akses Admin)</span>
             </label>
             <div class="input-wrap">
               <input type="text" id="upd-plate" placeholder="Ketik Plat Baru (contoh: B 4567 XYZ)" style="text-transform:uppercase;font-weight:700" required>
             </div>
             <small style="color:var(--gray-400);font-size:11px">
-              Gunakan fitur ini jika hari ini Anda membawa mobil/motor yang berbeda agar tetap lolos verifikasi ganda di gerbang keluar.
+              Perubahan plat nomor akan langsung diperbarui dengan kartu RFID yang sama.
             </small>
           </div>
           <div id="upd-msg" class="msg-box info" hidden></div>
@@ -555,8 +615,8 @@ button,input,select{font-family:inherit}
   </main>
 
   <footer class="footer-links">
-    <span>&copy; 2026 Smart Parking Gate FT Untirta (Capstone A7)</span>
-    <span>&bull;</span>
+    <span>&copy; 2026 Capstone A7</span>
+    <span>|</span>
     <a href="/dashboard">Login Dashboard Petugas &rarr;</a>
   </footer>
 </div>
@@ -892,7 +952,145 @@ button,input,select{font-family:inherit}
     pPrefix.focus();
   });
 
-  // 7. Tab 2: Lookup & Update Plate
+  // 7. Tab 2: Access Control (Guest = Cek saja, Admin = Cek & Ganti Plat)
+  var AUTH_KEY = 'spg_auth';
+  var adminSession = null;
+
+  function loadStoredAdmin() {
+    try {
+      var raw = localStorage.getItem(AUTH_KEY) || sessionStorage.getItem(AUTH_KEY);
+      if (!raw) return null;
+      var o = JSON.parse(raw);
+      if (o && o.email && String(o.role || '').toUpperCase() === 'ADMIN') return o;
+    } catch (e) { }
+    return null;
+  }
+
+  function isAdminUser() {
+    var u = adminSession || loadStoredAdmin();
+    return Boolean(u && String(u.role || '').toUpperCase() === 'ADMIN');
+  }
+
+  function getActiveAdmin() {
+    return adminSession || loadStoredAdmin();
+  }
+
+  function syncAccessUI() {
+    var adm = getActiveAdmin();
+    var isAdm = Boolean(adm);
+    var bar = $('#access-bar');
+    var badge = $('#access-badge-text');
+    bar.classList.toggle('is-admin', isAdm);
+    badge.textContent = isAdm
+      ? ('Admin (' + (adm.name || adm.email) + ')')
+      : 'Guest';
+    $('#btn-show-admin-login').hidden = isAdm;
+    $('#btn-admin-logout').hidden = !isAdm;
+    if (isAdm) $('#admin-login-box').hidden = true;
+
+    $('#check-heading').textContent = isAdm ? 'Cek Status & Ganti Plat Nomor' : 'Cek Status Kendaraan';
+    $('#check-sub').innerHTML = isAdm
+      ? 'Cari menggunakan <b>NIM/NIP</b> atau <b>Plat Nomor</b> untuk mengecek status atau mengganti plat kendaraan.'
+      : 'Cari menggunakan <b>NIM/NIP</b> atau <b>Plat Nomor</b> untuk mengecek status kartu RFID kendaraan Anda.';
+
+    $('#form-update-plate').hidden = !isAdm;
+    $('#guest-lock-notice').hidden = isAdm;
+  }
+
+  async function verifyAdminAccount(email, pass) {
+    var cleanEmail = (email || '').trim().toLowerCase();
+    // 1. Coba autentikasi lewat server lokal (/api/login) jika berjalan di localhost / LAN
+    if (window.location.protocol !== 'file:') {
+      try {
+        var localRes = await fetch('/api/login', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ email: cleanEmail, password: pass })
+        });
+        if (localRes.status === 200) {
+          var data = await localRes.json();
+          if (data && data.user) {
+            return { email: data.user.email, name: data.user.name, role: data.user.role || 'ADMIN', token: data.token };
+          }
+        } else if (localRes.status === 401) {
+          return null;
+        }
+      } catch (e) { /* lanjut fallback Supabase */ }
+    }
+
+    // 2. Fallback: autentikasi langsung ke tabel users di Supabase (Netlify)
+    var sb = getSupabaseConfig();
+    var res = await fetch(sb.base + '/rest/v1/users?email=ilike.' + encodeURIComponent(cleanEmail) + '&password=eq.' + encodeURIComponent(pass) + '&select=*', {
+      headers: sb.headers
+    });
+    if (res.ok) {
+      var rows = await res.json();
+      if (rows && rows.length > 0) {
+        return { email: rows[0].email, name: rows[0].name, role: rows[0].role || 'ADMIN' };
+      }
+    }
+    return null;
+  }
+
+  function openAdminLoginForm() {
+    $('#adm-login-msg').hidden = true;
+    $('#admin-login-box').hidden = false;
+    $('#adm-email').focus();
+  }
+
+  $('#btn-show-admin-login').addEventListener('click', openAdminLoginForm);
+  $('#btn-lock-admin-login').addEventListener('click', openAdminLoginForm);
+  $('#btn-adm-cancel').addEventListener('click', function () {
+    $('#admin-login-box').hidden = true;
+    $('#adm-login-msg').hidden = true;
+  });
+
+  $('#btn-admin-logout').addEventListener('click', function () {
+    adminSession = null;
+    try { localStorage.removeItem(AUTH_KEY); } catch (e) { }
+    try { sessionStorage.removeItem(AUTH_KEY); } catch (e) { }
+    $('#upd-msg').hidden = true;
+    syncAccessUI();
+  });
+
+  $('#admin-login-box').addEventListener('submit', async function (e) {
+    e.preventDefault();
+    var email = ($('#adm-email').value || '').trim();
+    var pass = $('#adm-pass').value || '';
+    var msg = $('#adm-login-msg');
+    msg.hidden = true;
+
+    var btn = $('#btn-adm-submit');
+    btn.disabled = true;
+    btn.textContent = 'Memverifikasi...';
+    try {
+      var user = await verifyAdminAccount(email, pass);
+      if (!user) {
+        msg.textContent = 'Email atau password salah.';
+        msg.hidden = false;
+        return;
+      }
+      if (String(user.role || '').toUpperCase() !== 'ADMIN') {
+        msg.textContent = 'Akun ini tidak memiliki hak akses Admin.';
+        msg.hidden = false;
+        return;
+      }
+      adminSession = user;
+      try { sessionStorage.setItem(AUTH_KEY, JSON.stringify(user)); } catch (ex) { }
+      $('#adm-pass').value = '';
+      syncAccessUI();
+    } catch (err) {
+      msg.textContent = 'Gagal memverifikasi akun: ' + (err.message || err);
+      msg.hidden = false;
+    } finally {
+      btn.disabled = false;
+      btn.textContent = 'Masuk';
+    }
+  });
+
+  syncAccessUI();
+
+  // 8. Tab 2: Lookup & Update Plate
   var currentFoundVehicle = null;
 
   $('#form-lookup').addEventListener('submit', async function (e) {
@@ -947,7 +1145,7 @@ button,input,select{font-family:inherit}
 
   function renderFoundVehicle(v) {
     $('#chk-name').textContent = v.owner || v.owner_name || '-';
-    $('#chk-nim').textContent = (v.category || 'STUDENT') + ' • ' + (v.nim_nip || '-');
+    $('#chk-nim').textContent = (v.category || 'STUDENT') + ' | ' + (v.nim_nip || '-');
     $('#chk-plate').textContent = v.plate || '-';
     $('#upd-plate').value = v.plate || '';
     var hasRfid = Boolean(v.rfid_uid && String(v.rfid_uid).trim());
@@ -961,6 +1159,14 @@ button,input,select{font-family:inherit}
   $('#form-update-plate').addEventListener('submit', async function (e) {
     e.preventDefault();
     if (!currentFoundVehicle) return;
+    if (!isAdminUser()) {
+      var updMsgDeny = $('#upd-msg');
+      updMsgDeny.className = 'msg-box error';
+      updMsgDeny.textContent = 'Akses ditolak: hanya Admin yang dapat mengganti plat nomor.';
+      updMsgDeny.hidden = false;
+      syncAccessUI();
+      return;
+    }
 
     var rawNew = ($('#upd-plate').value || '').trim();
     var formattedNew = formatFullPlate(rawNew);

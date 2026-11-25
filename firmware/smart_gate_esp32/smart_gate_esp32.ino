@@ -20,7 +20,7 @@
  *       EVT:BTN:1 sampai tombol terbaca lepas lagi (lalu kirim EVT:BTN_OK).
  *       Jika saat boot sudah terbaca ditekan, tekanan itu diabaikan.
  *   Motor Servo Palang (Signal)            -> GPIO13 (PWM 50Hz)
- *   Buzzer Flash 12V (Basis Transistor NPN)-> GPIO26 (Active HIGH)
+ *   Relay Buzzer Flash 12V (Kontak NO)     -> GPIO26 (Active LOW)
  *   LCD I2C 20x4                           -> SDA GPIO21, SCL GPIO22
  *
  * Protokol (teks per baris, 115200 baud) — lihat juga esp32_link.py:
@@ -42,14 +42,14 @@
 #define PIN_IR_AFTER    33
 #define PIN_BUTTON      27
 #define PIN_SERVO       13
-#define PIN_BUZZER      26
+#define PIN_RELAY       26
 #define PIN_SDA         21
 #define PIN_SCL         22
 
 // ── Parameter ────────────────────────────────────
 const uint32_t SERIAL_BAUD        = 115200;  // Harus sama dengan ESP32_BAUD di config.py
-const uint8_t  LCD_COLS           = 20;
-const uint8_t  LCD_ROWS           = 4;
+const uint8_t  LCD_COLS           = 16;
+const uint8_t  LCD_ROWS           = 2;
 const uint16_t SERVO_MIN_US       = 500;     // Pulsa 0 derajat  (2.5% duty @50Hz)
 const uint16_t SERVO_MAX_US       = 2500;    // Pulsa 180 derajat (12.5% duty @50Hz)
 const uint32_t SERVO_SETTLE_MS    = 500;     // Waktu servo mencapai posisi sebelum sinyal dilepas
@@ -61,6 +61,9 @@ const uint32_t BUTTON_FAULT_MS    = 5000;    // Ditekan terus lebih dari ini = g
 const uint32_t HEARTBEAT_MS       = 250;     // Interval kirim status ST:...
 const uint32_t PC_TIMEOUT_MS      = 5000;    // Tampilkan peringatan LCD jika Mini PC diam selama ini
 const uint16_t BEEP_GAP_MS        = 80;
+const bool     RELAY_ACTIVE_LOW   = true;    // true = modul relay Active LOW (HIGH = idle/mati, LOW = kontak/nyala)
+const uint8_t  RELAY_ON           = RELAY_ACTIVE_LOW ? LOW  : HIGH;
+const uint8_t  RELAY_OFF          = RELAY_ACTIVE_LOW ? HIGH : LOW;
 
 // ── Input dengan Debounce ────────────────────────
 struct DebouncedInput {
@@ -129,8 +132,13 @@ struct BuzzerPattern {
   uint32_t nextAt;
 } buzzer = {0, 0, 0, false, 0};
 
+void setBuzzerContinuous(bool on) {
+  buzzer = {0, 0, 0, false, 0};
+  digitalWrite(PIN_RELAY, on ? RELAY_ON : RELAY_OFF);
+}
+
 void startBuzzer(uint16_t onMs, uint16_t offMs, uint8_t count) {
-  digitalWrite(PIN_BUZZER, LOW);
+  digitalWrite(PIN_RELAY, RELAY_OFF);
   buzzer = {onMs, offMs, count, false, millis()};
 }
 
@@ -140,12 +148,12 @@ void updateBuzzer() {
   if ((int32_t)(now - buzzer.nextAt) < 0) return;
 
   if (buzzer.on) {
-    digitalWrite(PIN_BUZZER, LOW);
+    digitalWrite(PIN_RELAY, RELAY_OFF);
     buzzer.on = false;
     buzzer.remaining--;
     buzzer.nextAt = now + buzzer.offMs;
   } else if (buzzer.remaining > 0) {
-    digitalWrite(PIN_BUZZER, HIGH);
+    digitalWrite(PIN_RELAY, RELAY_ON);
     buzzer.on = true;
     buzzer.nextAt = now + buzzer.onMs;
   }
@@ -178,51 +186,58 @@ LiquidCrystal_I2C *lcd = nullptr;
 String   lcdLines[LCD_ROWS];   // Isi terakhir yang diminta Mini PC
 bool     lcdOverlay = false;   // true saat layar menampilkan peringatan "Mini PC offline"
 uint32_t lastLcdRetryMs = 0;
-const uint32_t LCD_RETRY_MS = 3000;
+const uint32_t LCD_RETRY_MS = 10000;
 
-uint8_t scanI2cLcdAddress() {
-  // Prioritaskan alamat umum PCF8574 (0x20-0x27) & PCF8574A (0x38-0x3F)
-  const uint8_t candidates[] = {
+uint8_t scanI2cLcdAddress(bool fullScan) {
+  // Prioritaskan alamat umum PCF8574 (0x27) & PCF8574A (0x3F)
+  const uint8_t common[] = {0x27, 0x3F};
+  const uint8_t all[] = {
     0x27, 0x3F,
     0x20, 0x21, 0x22, 0x23, 0x24, 0x25, 0x26,
     0x38, 0x39, 0x3A, 0x3B, 0x3C, 0x3D, 0x3E
   };
-  for (uint8_t addr : candidates) {
+  if (!fullScan) {
+    for (uint8_t addr : common) {
+      Wire.beginTransmission(addr);
+      if (Wire.endTransmission() == 0) return addr;
+    }
+    return 0;
+  }
+  for (uint8_t addr : all) {
     Wire.beginTransmission(addr);
     if (Wire.endTransmission() == 0) return addr;
   }
   return 0;
 }
 
-uint8_t detectLcdAddress() {
-  Wire.begin(PIN_SDA, PIN_SCL);
-  uint8_t addr = scanI2cLcdAddress();
-  if (addr) return addr;
-
-  // Fallback otomatis jika kabel jumper SDA (21) dan SCL (22) tertukar
-  Wire.end();
-  Wire.begin(PIN_SCL, PIN_SDA);
-  addr = scanI2cLcdAddress();
-  if (addr) {
-    Serial.println("ERR:LCD_SDA_SCL_TERTUKAR_AUTO_FIX");
-    return addr;
+void recoverI2cBus() {
+  // Jika LCD ditenagai PSU eksternal & ESP32 reset di tengah transaksi I2C,
+  // slave PCF8574 bisa menahan SDA LOW. Kirim 9 pulsa clock SCL untuk melepaskannya.
+  pinMode(PIN_SDA, INPUT_PULLUP);
+  pinMode(PIN_SCL, OUTPUT);
+  for (uint8_t i = 0; i < 9; i++) {
+    digitalWrite(PIN_SCL, LOW);
+    delayMicroseconds(10);
+    digitalWrite(PIN_SCL, HIGH);
+    delayMicroseconds(10);
   }
-
-  // Kembalikan ke pin standar
-  Wire.end();
-  Wire.begin(PIN_SDA, PIN_SCL);
-  return 0;
+  pinMode(PIN_SDA, OUTPUT);
+  digitalWrite(PIN_SDA, LOW);
+  delayMicroseconds(10);
+  digitalWrite(PIN_SDA, HIGH);
+  delayMicroseconds(10);
 }
 
 void lcdRedrawAll();
 
-bool tryInitLcd() {
+bool tryInitLcd(bool fullScan = false) {
   if (lcd) return true;
-  uint8_t lcdAddr = detectLcdAddress();
+  uint8_t lcdAddr = scanI2cLcdAddress(fullScan);
   if (!lcdAddr) return false;
 
   lcd = new LiquidCrystal_I2C(lcdAddr, LCD_COLS, LCD_ROWS);
   lcd->begin();
+  Wire.setTimeOut(20);
   lcd->backlight();
   lcdRedrawAll();
   Serial.printf("READY:LCD_OK_0x%02X\n", lcdAddr);
@@ -236,7 +251,7 @@ String padLine(const String &s) {
 }
 
 void lcdWriteRow(uint8_t row, const String &text) {
-  if (!lcd) return;
+  if (!lcd || row >= LCD_ROWS) return;
   lcd->setCursor(0, row);
   lcd->print(padLine(text));
 }
@@ -288,6 +303,10 @@ void handleCommand(String cmd) {
     startBuzzer(onMs, BEEP_GAP_MS, count < 1 ? 1 : count);
   } else if (cmd.startsWith("ALERT:")) {
     startBuzzer(cmd.substring(6).toInt(), 0, 1);
+  } else if (cmd == "BUZZ:ON") {
+    setBuzzerContinuous(true);
+  } else if (cmd == "BUZZ:OFF") {
+    setBuzzerContinuous(false);
   } else if (cmd.startsWith("LCD:")) {
     lcdSetLines(cmd.substring(4));
   } else if (cmd == "LCDCLR") {
@@ -324,10 +343,12 @@ void checkPcTimeout() {
   if (pcOnline && millis() - lastPcMs > PC_TIMEOUT_MS) {
     pcOnline = false;
     lcdOverlay = true;
-    lcdWriteRow(0, " GERBANG KELUAR FT  ");
-    lcdWriteRow(1, "! MINI PC OFFLINE ! ");
-    lcdWriteRow(2, "HUBUNGI PETUGAS     ");
-    lcdWriteRow(3, "PALANG TIDAK BERUBAH");
+    lcdWriteRow(0, "MINI PC OFFLINE!");
+    lcdWriteRow(1, "HUBUNGI PETUGAS ");
+    if (LCD_ROWS >= 4) {
+      lcdWriteRow(2, "PALANG TIDAK    ");
+      lcdWriteRow(3, "BERUBAH POSISI  ");
+    }
   }
 }
 
@@ -338,21 +359,24 @@ void setup() {
   pinMode(PIN_IR_BEFORE, INPUT_PULLUP);
   pinMode(PIN_IR_AFTER, INPUT_PULLUP);
   pinMode(PIN_BUTTON, INPUT_PULLUP);
-  pinMode(PIN_BUZZER, OUTPUT);
-  digitalWrite(PIN_BUZZER, LOW);
+  // Set RELAY_OFF sebelum pinMode OUTPUT agar relay tidak sempat berkontak saat boot
+  digitalWrite(PIN_RELAY, RELAY_OFF);
+  pinMode(PIN_RELAY, OUTPUT);
+  digitalWrite(PIN_RELAY, RELAY_OFF);
 
   // Servo tidak digerakkan saat boot: jika ESP32 reset ketika kendaraan
   // berada di bawah palang, posisi palang dibiarkan hingga Mini PC memberi perintah.
   ESP32PWM::allocateTimer(0);
   gateServo.setPeriodHertz(50);
 
-  lcdLines[0] = padLine(" GERBANG KELUAR FT  ");
-  lcdLines[1] = padLine("  UNTIRTA CILEGON   ");
-  lcdLines[2] = padLine("MENUNGGU MINI PC... ");
-  lcdLines[3] = padLine("");
+  lcdLines[0] = padLine("GERBANG KELUAR");
+  lcdLines[1] = padLine("TUNGGU MINI PC..");
 
   delay(100);  // Beri waktu catu daya 5V modul I2C LCD stabil saat baru dicolok
-  tryInitLcd();
+  recoverI2cBus();
+  Wire.begin(PIN_SDA, PIN_SCL);
+  Wire.setTimeOut(20);
+  tryInitLcd(true);
   lastLcdRetryMs = millis();
 
   irBefore.stable = irBefore.lastRaw = readActive(irBefore);

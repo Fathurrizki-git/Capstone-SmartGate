@@ -57,9 +57,9 @@ ESP32_HEARTBEAT_TIMEOUT = 2.0  # ESP32 dianggap terputus jika tidak ada data sel
 RFID_MIN_LENGTH = 4          # Panjang minimal UID agar ketikan dianggap kartu RFID
 RFID_DEVICE_KEYWORDS = ["rfid", "reader", "card", "hid"]  # Kata kunci nama perangkat (Linux / evdev)
 
-# ── LCD I2C 20x4 (Terpasang di ESP32) ────────────
-LCD_COLS = 20
-LCD_ROWS = 4
+# ── LCD I2C 16x2 (Terpasang di ESP32) ────────────
+LCD_COLS = 16
+LCD_ROWS = 2
 
 # ── Parameter Palang Gerbang Keluar & Timing ─────
 GATE_DIRECTION = "OUT"       # Default arah log kendaraan: OUT (Keluar)

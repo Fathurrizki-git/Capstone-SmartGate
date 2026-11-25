@@ -105,7 +105,6 @@ class SmartParkingExitGate:
             "PALANG TERTUTUP (0*)"
         )
         self.hw.close_gate()
-        self.hw.buzzer_beep(0.15, 1)
         time.sleep(1.5)
         self.hw.lcd.display_standby()
 
@@ -269,10 +268,7 @@ class SmartParkingExitGate:
                 "HATI-HATI DI JALAN:)"
             )
 
-        # 2. Bunyikan Buzzer 2x
-        self.hw.buzzer_beep(0.12, 2)
-
-        # 3. Buka Palang Gerbang Keluar (90 Derajat)
+        # 2. Buka Palang Gerbang Keluar (90 Derajat)
         self.hw.open_gate()
 
         # 4. Kirim Data Lengkap ke Supabase (vehicle_logs)
@@ -345,7 +341,6 @@ class SmartParkingExitGate:
             "PALANG DIBUKA       ",
             "SILAKAN MELINTAS... "
         )
-        self.hw.buzzer_beep(0.2, 1)
         self.hw.open_gate()
 
         # Catat log keluar manual ke database lokal (disinkron ke Supabase)
@@ -383,7 +378,6 @@ class SmartParkingExitGate:
             "PALANG DIBUKA (90*) ",
             "SILAKAN MELINTAS... "
         )
-        self.hw.buzzer_beep(0.2, 1)
         self.hw.open_gate()
 
         # Plat target: dari dashboard lokal (field plate) atau dari Netlify (format alasan "... [PLAT]")
@@ -442,7 +436,6 @@ class SmartParkingExitGate:
             print("  [SIMULASI] Sensor IR 2 BEBAS (Kendaraan telah melewati palang).")
             print(f"  [SIMULASI] Menjalankan safety timer {config.GATE_CLOSE_DELAY} detik sebelum menutup palang...")
             time.sleep(config.GATE_CLOSE_DELAY)
-            self.hw.buzzer_beep(0.1, 1)
             self.hw.close_gate()
             print("  [GERBANG] Palang berhasil ditutup kembali (0 derajat).")
             time.sleep(1.0)
@@ -538,9 +531,8 @@ class SmartParkingExitGate:
             timer_remaining -= interval
 
         # -----------------------------------------------------------------
-        # TAHAP 4: Tutup Palang
+        # TAHAP 4: Tutup Palang (buzzer mati otomatis setelah palang tiba di 0 derajat)
         # -----------------------------------------------------------------
-        self.hw.buzzer_beep(0.1, 1)
         self.hw.close_gate()
         print("  [GERBANG] Palang berhasil ditutup kembali (0 derajat).")
 
@@ -609,7 +601,6 @@ class SmartParkingExitGate:
                 "MEMPROSES OCR API...",
                 "MOHON TUNGGU...     "
             )
-            self.hw.buzzer_beep(0.08, 1)
 
         # 1. Ambil foto dan deteksi plat via Webcam USB
         if frame is None:
@@ -790,7 +781,6 @@ class SmartParkingExitGate:
                             # Simulasi kartu RFID baru yang di-tap oleh pengendara belum terdaftar
                             rfid_uid = f"0008{int(time.time()) % 1000000:06d}"
                         print(f"  [SIMULASI PC \u2705] Tap RFID disimulasikan via Terminal/Kamera: {rfid_uid}")
-                        self.hw.buzzer_beep(0.08, 1)
                         break
                     elif k == ord('m') or k == ord('M') or self.terminal_manual:
                         self.terminal_manual = False
@@ -810,7 +800,6 @@ class SmartParkingExitGate:
                     else:
                         rfid_uid = f"0008{int(time.time()) % 1000000:06d}"
                     print(f"  [SIMULASI PC \u2705] Tap RFID disimulasikan via Terminal VSCode: {rfid_uid}")
-                    self.hw.buzzer_beep(0.08, 1)
                     break
 
                 # Cek jika tombol manual ditekan petugas selama menunggu
@@ -823,7 +812,6 @@ class SmartParkingExitGate:
                 rfid_uid = self.hw.get_scanned_rfid()
                 if rfid_uid:
                     print(f"  [RFID OK] Kartu di-tap: UID {rfid_uid}")
-                    self.hw.buzzer_beep(0.08, 1)
                     break
 
                 if rf_frame is None:
