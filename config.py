@@ -29,6 +29,16 @@ ALPR_DET_CONF = 0.5                          # Ambang keyakinan deteksi plat YOL
 ALPR_RUNTIME = "AUTO"                        # "AUTO" = OpenVINO bila terpasang (lebih cepat di CPU Intel), selain itu ONNX Runtime
                                              # "OPENVINO" / "ONNXRUNTIME" = paksa salah satu
 
+# Mesin OCR (pembaca teks plat) untuk ALPR LOCAL. Detektor plat tetap YOLO (plate_det.onnx).
+# "FASTPLATE" = fast-plate-ocr (model pretrained, pip install "fast-plate-ocr[onnx]"); plate_rec.onnx tidak wajib.
+#               Jika pustaka tidak terpasang, otomatis jatuh ke PP-OCRv5 (bila plate_rec.onnx ada).
+# "PADDLE"    = PaddleOCR PP-OCRv5 rec (plate_rec.onnx + plate_rec_dict.txt di ALPR_MODEL_DIR)
+ALPR_OCR = "FASTPLATE"
+FPO_MODEL = "cct-xs-v2-global-model"         # Model hub fast-plate-ocr (dipakai bila FPO_MODEL_DIR kosong; diunduh sekali ke ~/.cache/fast-plate-ocr)
+FPO_MODEL_DIR = "alpr_model/fastplate"       # Mode offline: folder berisi file .onnx + plate_config.yaml (relatif ke root proyek).
+                                             # Berisi cct-xs-v2-global (salinan hub). Kosong = pakai FPO_MODEL dari hub.
+FPO_MAIN_LINE = False                        # True = buang baris tanggal (crop_main_line) sebelum OCR
+
 # ── Plate Recognizer API ────────────────────────
 API_TOKEN = "476ed9b4276c169486fc16e30891cc01f9f0e4f1"          # Token dari platerecognizer.com
 API_URL = "https://api.platerecognizer.com/v1/plate-reader/"

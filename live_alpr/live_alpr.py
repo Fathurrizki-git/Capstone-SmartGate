@@ -38,13 +38,14 @@ IMG_DIR = os.path.join(ROOT, 'web_dashboard', 'img')
 GREEN, RED = (116, 181, 1), (60, 56, 255)          # BGR dari --green #01b574 dan --red #ff383c
 
 
-def alpr_version(runtime='ONNX Runtime CPU'):
-    """Versi ALPR: config.ALPR_VERSION bila ada, selain itu tanggal file model."""
+def alpr_version(runtime='ONNX Runtime CPU', ocr_name='PP-OCRv5'):
+    """Versi ALPR: config.ALPR_VERSION bila ada, selain itu tanggal file model.
+    ocr_name = nama mesin OCR dari LocalALPR.ocr_name (mis. 'fast-plate-ocr cct-xs-v2' / 'PP-OCRv5')."""
     v = getattr(config, 'ALPR_VERSION', None)
     model_dir = getattr(config, 'ALPR_MODEL_DIR', 'alpr_model/weights26')
     det = os.path.join(model_dir if os.path.isabs(model_dir) else os.path.join(ROOT, model_dir), 'plate_det.onnx')
     stamp = time.strftime('%d %b %Y', time.localtime(os.path.getmtime(det))) if os.path.exists(det) else '-'
-    return {'version': v or f'model {stamp}', 'engine': 'YOLO + PP-OCRv5', 'runtime': runtime}
+    return {'version': v or f'model {stamp}', 'engine': 'YOLO + ' + ocr_name, 'runtime': runtime}
 
 
 class LiveALPR:
@@ -58,7 +59,8 @@ class LiveALPR:
         self.last = None                       # plat stabil terakhir: {plate, conf, time}
         self.history = deque(maxlen=6)
         self.started = time.time()
-        self.version = alpr_version(getattr(self.alpr, 'runtime', 'ONNX Runtime CPU'))
+        self.version = alpr_version(getattr(self.alpr, 'runtime', 'ONNX Runtime CPU'),
+                                    getattr(self.alpr, 'ocr_name', 'PP-OCRv5'))
         self.stop = threading.Event()
         threading.Thread(target=self._detect_loop, daemon=True).start()
 

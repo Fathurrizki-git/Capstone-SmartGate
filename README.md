@@ -239,6 +239,25 @@ Lalu isi `CAMERA_NAME` di `config.py` sesuai nama yang direkomendasikan (contoh:
 - **Linux:** dibaca langsung dari perangkat input (evdev), tidak bergantung pada jendela mana yang aktif.
 - **Windows:** ketikan reader ditangkap dari **jendela terminal** atau **jendela kamera OpenCV**, sehingga salah satunya harus dalam keadaan aktif (fokus).
 
+**Memilih Mesin OCR (ALPR lokal):** detektor plat selalu YOLO (`plate_det.onnx`), sedangkan pembaca teksnya dipilih lewat `ALPR_OCR`:
+```python
+ALPR_OCR = "FASTPLATE"                 # "FASTPLATE" = fast-plate-ocr (pretrained), "PADDLE" = PP-OCRv5
+FPO_MODEL = "cct-xs-v2-global-model"   # model hub fast-plate-ocr
+FPO_MODEL_DIR = ""                     # opsional: folder model lokal untuk mode offline
+FPO_MAIN_LINE = False                  # True = buang baris tanggal plat sebelum OCR
+```
+- `FASTPLATE` butuh `pip install "fast-plate-ocr[onnx]"` (sudah ada di `requirements.txt`); `plate_rec.onnx` / `plate_rec_dict.txt` tidak wajib. Jika pustaka atau modelnya gagal dimuat, sistem mencetak `[WARN]` dan otomatis memakai PP-OCRv5 (bila filenya ada).
+- `PADDLE` memakai `plate_rec.onnx` + `plate_rec_dict.txt` di `ALPR_MODEL_DIR` seperti sebelumnya.
+- Mesin yang aktif tampil di log start, mis. `[OK] ALPR lokal siap (YOLO 640px + fast-plate-ocr cct-xs-v2, ...)`.
+
+**Mode offline fast-plate-ocr (default):** model `cct-xs-v2-global` sudah disimpan di `alpr_model/fastplate/` (`cct_xs_v2_global.onnx` + `plate_config.yaml`) dan dipakai lewat `FPO_MODEL_DIR = "alpr_model/fastplate"`, jadi Mini PC tidak perlu internet. Untuk mencoba model hub lain, kosongkan `FPO_MODEL_DIR` dan isi `FPO_MODEL`; model diunduh sekali ke `~/.cache/fast-plate-ocr/<nama-model>/`, lalu folder itu bisa disalin ke proyek dengan cara yang sama (tepat satu `.onnx` + `*plate_config.yaml`).
+
+> ⚠️ `fast-plate-ocr` ikut memasang `opencv-python-headless` yang menimpa OpenCV versi GUI (jendela preview dan `--test-cam` jadi error). Setelah `pip install -r requirements.txt`, jalankan sekali:
+> ```bash
+> pip install --force-reinstall --no-deps opencv-python
+> ```
+> Jangan meng-uninstall `opencv-python-headless`, karena folder `cv2` ikut terhapus.
+
 ### 4. Setup Database di Supabase (Cloud)
 1. Buka Dashboard Supabase Anda, masuk ke **SQL Editor**.
 2. **Project baru:** salin isi file [supabase/schema.sql](supabase/schema.sql) dan klik **Run**.

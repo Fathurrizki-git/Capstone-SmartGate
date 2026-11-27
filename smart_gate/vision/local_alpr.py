@@ -1,5 +1,7 @@
 """
-ALPR lokal (offline) di Mini PC: YOLOv8n / YOLO26n (deteksi plat) + PP-OCRv5 rec (baca teks), keduanya format ONNX.
+ALPR lokal (offline) di Mini PC: YOLOv8n / YOLO26n (deteksi plat) + OCR baca teks, semuanya format ONNX.
+OCR dipilih lewat config.ALPR_OCR: "FASTPLATE" (pustaka fast-plate-ocr, model pretrained hub / FPO_MODEL_DIR)
+atau "PADDLE" (PP-OCRv5 rec). FASTPLATE yang gagal dimuat otomatis jatuh ke PP-OCRv5.
 
 Hanya butuh onnxruntime ATAU openvino + OpenCV + numpy (tanpa PyTorch / PaddlePaddle), sehingga jalan di
 Python versi baru (PaddlePaddle belum punya wheel untuk Python 3.14). Runtime dipilih lewat config.ALPR_RUNTIME;
@@ -9,8 +11,8 @@ Ukuran input YOLO dibaca dari plate_det.onnx, jadi model yang diekspor ulang di 
 File model dibuat di notebook Colab alpr_model/new/alpr.ipynb (bagian "Ekspor model untuk Mini PC")
 lalu disalin ke folder config.ALPR_MODEL_DIR:
     plate_det.onnx       YOLOv8n (alpr.ipynb) atau YOLO26n (alpr_yolo26n.ipynb) hasil fine-tune, 1 kelas: plate
-    plate_rec.onnx       PaddleOCR en_PP-OCRv5_mobile_rec
-    plate_rec_dict.txt   daftar karakter model OCR (satu karakter per baris)
+    plate_rec.onnx       PaddleOCR en_PP-OCRv5_mobile_rec           (hanya wajib untuk ALPR_OCR = "PADDLE")
+    plate_rec_dict.txt   daftar karakter model OCR (satu per baris) (hanya wajib untuk ALPR_OCR = "PADDLE")
 
 recognize() mengembalikan format yang SAMA dengan PlateRecognizerAPI.recognize() agar main.py tidak berubah.
 Logika teks plat (clean / fix_plate / crop_main_line) harus sama dengan plate_utils.py di notebook.
@@ -210,6 +212,58 @@ class PlateReader:
         return ''.join(text), float(np.mean(conf)) if conf else 0.0
 
 
+class FastPlateReader:
+    """OCR plat dengan pustaka fast-plate-ocr (model pretrained, ONNX Runtime). Antarmuka sama dengan PlateReader:
+    read(crop_bgr) -> (teks, confidence). Pustaka menganggap array sudah dalam color mode model
+    (PlateConfig.image_color_mode: "rgb" atau "grayscale") dan TIDAK mengonversi warna, jadi BGR dikonversi di sini.
+    Resize (+ letterbox bila keep_aspect_ratio) dilakukan pustaka sesuai plate_config.yaml."""
+
+    def __init__(self, model_name=None, model_dir=None):
+        from fast_plate_ocr import LicensePlateRecognizer
+        model_name = model_name or getattr(config, 'FPO_MODEL', 'cct-xs-v2-global-model')
+        model_dir = model_dir if model_dir is not None else getattr(config, 'FPO_MODEL_DIR', '')
+        if model_dir:
+            if not os.path.isabs(model_dir):
+                model_dir = os.path.join(smart_gate.PROJECT_ROOT, model_dir)
+            onnx_path, cfg_path = self._find_local_files(model_dir)
+            self.model = LicensePlateRecognizer(device='cpu', onnx_model_path=onnx_path, plate_config_path=cfg_path)
+            self.name = f"fast-plate-ocr {os.path.splitext(os.path.basename(onnx_path))[0]} (offline)"
+        else:
+            self.model = LicensePlateRecognizer(hub_ocr_model=model_name, device='cpu')
+            self.name = f"fast-plate-ocr {model_name.replace('-global-model', '').replace('-model', '')}"
+        self.color_mode = self.model.config.image_color_mode           # "rgb" / "grayscale"
+
+    @staticmethod
+    def _find_local_files(model_dir):
+        """Cari tepat satu file .onnx dan plate_config.yaml (atau *plate_config.yaml / *config.yaml
+        seperti nama file cache hub) di folder model_dir."""
+        if not os.path.isdir(model_dir):
+            raise FileNotFoundError(f"Folder FPO_MODEL_DIR tidak ditemukan: {model_dir}")
+        files = sorted(os.listdir(model_dir))
+        onnx = [f for f in files if f.lower().endswith('.onnx')]
+        if len(onnx) != 1:
+            raise FileNotFoundError(f"FPO_MODEL_DIR harus berisi tepat satu file .onnx (ada {len(onnx)}): {model_dir}")
+        yamls = [f for f in files if f.lower().endswith(('.yaml', '.yml'))]
+        cfg = next((f for f in yamls if f.lower() == 'plate_config.yaml'), None) \
+            or next((f for f in yamls if 'config' in f.lower()), None)
+        if not cfg:
+            raise FileNotFoundError(f"plate_config.yaml tidak ditemukan di FPO_MODEL_DIR: {model_dir}")
+        return os.path.join(model_dir, onnx[0]), os.path.join(model_dir, cfg)
+
+    def read(self, crop):
+        if crop.ndim == 2:
+            img = crop if self.color_mode == 'grayscale' else cv2.cvtColor(crop, cv2.COLOR_GRAY2RGB)
+        else:
+            img = cv2.cvtColor(crop, cv2.COLOR_BGR2GRAY if self.color_mode == 'grayscale' else cv2.COLOR_BGR2RGB)
+        pred = self.model.run(img, return_confidence=True, remove_pad_char=True)[0]
+        text = pred.plate
+        probs = pred.char_probs
+        # char_probs mencakup SEMUA slot (max_plate_slots) termasuk slot padding yang biasanya ~1.0;
+        # rata-rata hanya diambil dari slot karakter hasil baca agar confidence tidak menggelembung.
+        conf = float(np.mean(probs[:len(text)])) if probs is not None and len(text) else 0.0
+        return text, conf
+
+
 class _OpenVINOSession:
     """Membungkus model OpenVINO agar antarmukanya sama dengan onnxruntime.InferenceSession
     (get_inputs()[0].name/.shape dan run(None, {nama: array})), sehingga PlateDetector/PlateReader tidak berubah.
@@ -263,21 +317,38 @@ class LocalALPR:
         det_path = os.path.join(model_dir, 'plate_det.onnx')
         rec_path = os.path.join(model_dir, 'plate_rec.onnx')
         dict_path = os.path.join(model_dir, 'plate_rec_dict.txt')
-        for p in (det_path, rec_path, dict_path):
-            if not os.path.exists(p):
-                raise FileNotFoundError(f"File model ALPR tidak ditemukan: {p}")
+        if not os.path.exists(det_path):
+            raise FileNotFoundError(f"File model ALPR tidak ditemukan: {det_path}")
 
-        with open(dict_path, encoding='utf-8') as f:
-            chars = ['blank'] + [ln.rstrip('\r\n') for ln in f if ln.rstrip('\r\n')]
+        # Mesin OCR: fast-plate-ocr (FASTPLATE) atau PP-OCRv5 (PADDLE). FASTPLATE yang gagal -> PP-OCRv5.
+        self.ocr = str(getattr(config, 'ALPR_OCR', 'PADDLE')).upper()
+        self.reader = None
+        if self.ocr == 'FASTPLATE':
+            try:
+                self.reader = FastPlateReader()
+                self.ocr_name = self.reader.name
+            except Exception as e:
+                why = "pustaka fast-plate-ocr tidak terpasang" if isinstance(e, ImportError) else str(e)
+                print(f"[WARN] fast-plate-ocr tidak bisa dimuat ({why}). Memakai PP-OCRv5.")
+                self.ocr = 'PADDLE'
 
-        (det_sess, rec_sess), self.runtime = _open_sessions([det_path, rec_path])
+        if self.reader is None:
+            for p in (rec_path, dict_path):
+                if not os.path.exists(p):
+                    raise FileNotFoundError(f"File model ALPR tidak ditemukan: {p}")
+            with open(dict_path, encoding='utf-8') as f:
+                chars = ['blank'] + [ln.rstrip('\r\n') for ln in f if ln.rstrip('\r\n')]
+            (det_sess, rec_sess), self.runtime = _open_sessions([det_path, rec_path])
+            self.reader = PlateReader(rec_sess, chars)
+            self.ocr_name = "PP-OCRv5"
+        else:
+            (det_sess,), self.runtime = _open_sessions([det_path])
         self.detector = PlateDetector(det_sess,
                                       conf=det_conf if det_conf is not None else getattr(config, 'ALPR_DET_CONF', 0.5))
-        self.reader = PlateReader(rec_sess, chars)
 
         # Pemanasan agar pindaian pertama tidak lambat
         self.recognize(np.zeros((480, 640, 3), np.uint8))
-        print(f"[OK] ALPR lokal siap (YOLO {self.detector.size}px + PP-OCRv5, {self.runtime})")
+        print(f"[OK] ALPR lokal siap (YOLO {self.detector.size}px + {self.ocr_name}, {self.runtime})")
         print(f"     Model: {model_dir}")
 
     def recognize(self, image: np.ndarray) -> dict:
@@ -286,7 +357,9 @@ class LocalALPR:
             t0 = time.time()
             results = []
             for x1, y1, x2, y2, det_conf in self.detector.detect(image):
-                crop = crop_main_line(crop_plate(image, x1, y1, x2, y2))
+                crop = crop_plate(image, x1, y1, x2, y2)
+                if self.ocr != 'FASTPLATE' or getattr(config, 'FPO_MAIN_LINE', False):
+                    crop = crop_main_line(crop)
                 if crop.size == 0:
                     continue
                 raw, ocr_conf = self.reader.read(crop)

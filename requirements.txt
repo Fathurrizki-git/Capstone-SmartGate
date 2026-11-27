@@ -11,6 +11,11 @@ requests>=2.31.0
 # ALPR lokal (YOLOv8n + PaddleOCR dalam format ONNX, tanpa PyTorch/PaddlePaddle)
 onnxruntime>=1.20
 # Opsional, lebih cepat di CPU Intel (dipakai otomatis bila terpasang): pip install openvino
+# OCR plat fast-plate-ocr (model pretrained, dipakai bila config.ALPR_OCR = "FASTPLATE"; ikut memasang onnxruntime)
+fast-plate-ocr[onnx]
+# PERHATIAN: fast-plate-ocr ikut memasang opencv-python-headless yang MENIMPA cv2 versi GUI (preview & --test-cam error).
+# Setelah pip install, jalankan sekali:  pip install --force-reinstall --no-deps opencv-python
+# (jangan uninstall opencv-python-headless, folder cv2 ikut terhapus)
 
 # Deteksi webcam berdasarkan nama (melewati kamera virtual OBS / Cast)
 cv2-enumerate-cameras>=1.4
