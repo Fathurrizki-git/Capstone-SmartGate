@@ -6,7 +6,8 @@ atau "PADDLE" (PP-OCRv5 rec). FASTPLATE yang gagal dimuat otomatis jatuh ke PP-O
 Hanya butuh onnxruntime ATAU openvino + OpenCV + numpy (tanpa PyTorch / PaddlePaddle), sehingga jalan di
 Python versi baru (PaddlePaddle belum punya wheel untuk Python 3.14). Runtime dipilih lewat config.ALPR_RUNTIME;
 OpenVINO biasanya lebih cepat di CPU Intel (mis. Celeron mini PC) dan membaca file .onnx yang sama.
-Ukuran input YOLO dibaca dari plate_det.onnx, jadi model yang diekspor ulang di 416/320 langsung terpakai.
+Ukuran input YOLO dibaca dari file .onnx, jadi model yang diekspor ulang di 416/320 langsung terpakai.
+File detektor dipilih lewat config.ALPR_DET_FILE (default plate_det.onnx; mis. plate_det_416.onnx).
 
 File model dibuat di notebook Colab alpr_model/new/alpr.ipynb (bagian "Ekspor model untuk Mini PC")
 lalu disalin ke folder config.ALPR_MODEL_DIR:
@@ -314,7 +315,7 @@ class LocalALPR:
         model_dir = model_dir or getattr(config, 'ALPR_MODEL_DIR', 'alpr_model/weights')
         if not os.path.isabs(model_dir):
             model_dir = os.path.join(smart_gate.PROJECT_ROOT, model_dir)
-        det_path = os.path.join(model_dir, 'plate_det.onnx')
+        det_path = os.path.join(model_dir, getattr(config, 'ALPR_DET_FILE', 'plate_det.onnx') or 'plate_det.onnx')
         rec_path = os.path.join(model_dir, 'plate_rec.onnx')
         dict_path = os.path.join(model_dir, 'plate_rec_dict.txt')
         if not os.path.exists(det_path):

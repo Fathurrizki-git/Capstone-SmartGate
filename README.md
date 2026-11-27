@@ -250,6 +250,16 @@ FPO_MAIN_LINE = False                  # True = buang baris tanggal plat sebelum
 - `PADDLE` memakai `plate_rec.onnx` + `plate_rec_dict.txt` di `ALPR_MODEL_DIR` seperti sebelumnya.
 - Mesin yang aktif tampil di log start, mis. `[OK] ALPR lokal siap (YOLO 640px + fast-plate-ocr cct-xs-v2, ...)`.
 
+**Ukuran detektor YOLO:** `ALPR_DET_FILE` memilih file detektor di `ALPR_MODEL_DIR`. Uji di Mini PC (Celeron N3350, OpenVINO, 91 foto gerbang):
+
+| `ALPR_DET_FILE` | Waktu deteksi | Plat terdeteksi |
+|---|---|---|
+| `plate_det.onnx` (640) | ~485 ms | 90/91 |
+| `plate_det_416.onnx` (default) | ~255 ms | 88/91 |
+| `plate_det_320.onnx` | ~185 ms | 80/91 |
+
+Versi 416/320 diekspor dari `best.pt` yang sama (`model.export(format='onnx', imgsz=416, opset=17, simplify=True)`).
+
 **Mode offline fast-plate-ocr (default):** model `cct-xs-v2-global` sudah disimpan di `alpr_model/fastplate/` (`cct_xs_v2_global.onnx` + `plate_config.yaml`) dan dipakai lewat `FPO_MODEL_DIR = "alpr_model/fastplate"`, jadi Mini PC tidak perlu internet. Untuk mencoba model hub lain, kosongkan `FPO_MODEL_DIR` dan isi `FPO_MODEL`; model diunduh sekali ke `~/.cache/fast-plate-ocr/<nama-model>/`, lalu folder itu bisa disalin ke proyek dengan cara yang sama (tepat satu `.onnx` + `*plate_config.yaml`).
 
 > ⚠️ `fast-plate-ocr` ikut memasang `opencv-python-headless` yang menimpa OpenCV versi GUI (jendela preview dan `--test-cam` jadi error). Setelah `pip install -r requirements.txt`, jalankan sekali:

@@ -43,7 +43,8 @@ def alpr_version(runtime='ONNX Runtime CPU', ocr_name='PP-OCRv5'):
     ocr_name = nama mesin OCR dari LocalALPR.ocr_name (mis. 'fast-plate-ocr cct-xs-v2' / 'PP-OCRv5')."""
     v = getattr(config, 'ALPR_VERSION', None)
     model_dir = getattr(config, 'ALPR_MODEL_DIR', 'alpr_model/weights26')
-    det = os.path.join(model_dir if os.path.isabs(model_dir) else os.path.join(ROOT, model_dir), 'plate_det.onnx')
+    det = os.path.join(model_dir if os.path.isabs(model_dir) else os.path.join(ROOT, model_dir),
+                       getattr(config, 'ALPR_DET_FILE', 'plate_det.onnx') or 'plate_det.onnx')
     stamp = time.strftime('%d %b %Y', time.localtime(os.path.getmtime(det))) if os.path.exists(det) else '-'
     return {'version': v or f'model {stamp}', 'engine': 'YOLO + ' + ocr_name, 'runtime': runtime}
 
