@@ -24,7 +24,7 @@ import sys
 #           Jika model / onnxruntime belum ada, otomatis memakai Plate Recognizer (CLOUD).
 # "CLOUD" = Plate Recognizer API (butuh internet, kuota 2.500/bulan).
 ALPR_ENGINE = "LOCAL"
-ALPR_MODEL_DIR = "alpr_model/weights"       # Relatif ke root proyek: plate_det.onnx, plate_rec.onnx, plate_rec_dict.txt
+ALPR_MODEL_DIR = "alpr_model/weightsnew"       # Relatif ke root proyek: plate_det.onnx, plate_rec.onnx, plate_rec_dict.txt
 ALPR_DET_CONF = 0.5                          # Ambang keyakinan deteksi plat YOLO
 ALPR_RUNTIME = "AUTO"                        # "AUTO" = OpenVINO bila terpasang (lebih cepat di CPU Intel), selain itu ONNX Runtime
                                              # "OPENVINO" / "ONNXRUNTIME" = paksa salah satu
